@@ -1,9 +1,28 @@
 """把資料轉成給使用者看的 Telegram 訊息文字。"""
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from .monitor import CheckResult
 from .parser import ParsedWatch
 from .storage import Watch
+
+
+def _google_flights_url(w) -> str:
+    """用航線＋日期直接組一個 Google Flights 查詢連結（不依賴 API 回傳）。"""
+    q = f"flights from {w.origin} to {w.destination} on {w.depart_date}"
+    if getattr(w, "return_date", None):
+        q += f" returning {w.return_date}"
+    return "https://www.google.com/travel/flights?q=" + quote(q)
+
+
+def _booking_section(w, offer) -> str:
+    lines = [f'🔗 <a href="{_google_flights_url(w)}">在 Google Flights 查看／訂票</a>']
+    if offer is not None and offer.booking_link:
+        lines.append(f'　└ 或<a href="{offer.booking_link}">資料來源的訂票頁</a>')
+    if offer is not None and offer.carrier:
+        lines.append(f"　└ 也可直接到「{offer.carrier}」官網訂同班")
+    return "\n".join(lines)
 
 HELP_TEXT = (
     "✈️ <b>便宜機票通知機器人</b>\n\n"
@@ -33,7 +52,8 @@ def watch_created(w: Watch) -> str:
         "✅ <b>已建立監控</b>\n"
         f"航線：{_route_label(w)}\n"
         f"{budget}\n"
-        f"編號 #{w.id}　我會定時幫你查價，便宜了就通知你 👀"
+        f"編號 #{w.id}　我會定時幫你查價，便宜了就通知你 👀\n"
+        f'🔗 <a href="{_google_flights_url(w)}">先看現在的價格／訂票</a>'
     )
 
 
@@ -56,7 +76,6 @@ def deal_alert(result: CheckResult) -> str:
     w = result.watch
     o = result.cheapest
     assert o is not None
-    link = f'\n<a href="{o.booking_link}">看這班 ✈️</a>' if o.booking_link else ""
     title = "🔥 <b>好價來了！</b>" if result.is_good_deal else "🔔 <b>便宜機票通知！</b>"
     return (
         f"{title}\n"
@@ -64,7 +83,8 @@ def deal_alert(result: CheckResult) -> str:
         f"目前最低：<b>{o.price:.0f} {o.currency}</b>"
         f"（{o.carrier}，{'直飛' if o.stops == 0 else f'轉{o.stops}次'}）\n"
         f"原因：{result.reason}\n"
-        f"監控 #{w.id}{link}"
+        f"監控 #{w.id}\n"
+        f"{_booking_section(w, o)}"
     )
 
 
