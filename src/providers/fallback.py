@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 
-from ..flight_offer import FlightOffer, QuotaExceeded
+from ..flight_offer import FlightError, FlightOffer, QuotaExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +20,11 @@ class FallbackProvider:
     def search_offers(self, **kwargs) -> list[FlightOffer]:
         try:
             return self.primary.search_offers(**kwargs)
-        except QuotaExceeded as exc:
+        except FlightError as exc:
+            # 額度用盡、或查無結果、或任何暫時性錯誤 → 一律改用免費備援再試一次
+            kind = "額度用盡" if isinstance(exc, QuotaExceeded) else "查詢失敗"
             logger.warning(
-                "主要來源 %s 額度用盡（%s），改用備援 %s",
-                self.primary.name, exc, self.fallback.name,
+                "主要來源 %s %s（%s），改用備援 %s",
+                self.primary.name, kind, exc, self.fallback.name,
             )
             return self.fallback.search_offers(**kwargs)

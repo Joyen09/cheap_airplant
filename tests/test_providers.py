@@ -1,6 +1,6 @@
 import pytest
 
-from src.flight_offer import QuotaExceeded
+from src.flight_offer import FlightError, QuotaExceeded
 from src.providers.fallback import FallbackProvider
 from src.providers.serpapi import SerpApiClient
 from src.providers.travelpayouts import TravelpayoutsClient
@@ -92,3 +92,17 @@ def test_fallback_switches_on_quota():
 def test_fallback_uses_primary_when_ok():
     fb = FallbackProvider(primary=_Stub(["primary"]), fallback=_Stub(["fb"]))
     assert fb.search_offers() == ["primary"]
+
+
+class _NoResults:
+    name = "serp"
+
+    def search_offers(self, **kw):
+        raise FlightError("Google Flights hasn't returned any results for this query.")
+
+
+def test_fallback_switches_on_any_flight_error():
+    # 不只額度用盡，「查無結果」等任何 FlightError 也會退回備援
+    fb = FallbackProvider(primary=_NoResults(), fallback=_Stub(["fb"]))
+    assert fb.search_offers(origin="TPE", destination="XXX",
+                            depart_date="2026-07-01") == ["fb"]
