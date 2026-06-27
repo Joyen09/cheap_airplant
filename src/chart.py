@@ -6,12 +6,20 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import matplotlib
 matplotlib.use("Agg")  # 無視窗環境（伺服器）用的後端
 import matplotlib.dates as mdates  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
+
+
+def _to_local(ts: str, tz) -> datetime:
+    """把儲存的 ISO 時間（UTC）轉成指定時區的牆上時間（去掉 tz 方便畫圖）。"""
+    dt = datetime.fromisoformat(ts)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz).replace(tzinfo=None)
 
 
 def render_price_chart(
@@ -20,9 +28,11 @@ def render_price_chart(
     currency: str = "TWD",
     threshold: float | None = None,
     baseline: float | None = None,
+    tz_offset_hours: int = 8,  # 預設台灣時間 GMT+8
 ) -> bytes:
     """points: [(iso_timestamp, price), ...]，已按時間排序。回傳 PNG bytes。"""
-    times = [datetime.fromisoformat(ts) for ts, _ in points]
+    tz = timezone(timedelta(hours=tz_offset_hours))
+    times = [_to_local(ts, tz) for ts, _ in points]
     prices = [p for _, p in points]
 
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -43,6 +53,7 @@ def render_price_chart(
 
     ax.set_title(title)
     ax.set_ylabel(f"Price ({currency})")
+    ax.set_xlabel(f"Time (GMT+{tz_offset_hours})")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=8, loc="best")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d %H:%M"))
