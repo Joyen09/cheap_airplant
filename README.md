@@ -16,8 +16,11 @@
 
 ### A. 全程在 GitHub 上跑（推薦，免下載、免伺服器）
 
-靠 **GitHub Actions** 每 30 分鐘自動執行一次：讀你傳的新訊息、查價、便宜就通知，
+靠 **GitHub Actions** 每 5 分鐘自動執行一次：讀你傳的新訊息、查價、便宜就通知，
 狀態存回 repo 裡的 `bot_state.json`。你完全不用開電腦。
+
+> 💰 費用：公開 repo 的 GitHub Actions 免費且無限制。Amadeus 的 `test` 沙盒也免費；
+> 換成 `production` 正式環境每月有免費額度，5 分鐘高頻查詢可能超量而計費，請斟酌間隔與航線數。
 
 設定步驟（都在瀏覽器完成）：
 
@@ -29,13 +32,13 @@
 2. （可選）在同一頁的 **Variables** 分頁可設 `AMADEUS_ENV`、`CURRENCY`、`ADULTS` 等，
    不設就用預設值（`test` / `TWD` / `1`）。
 3. 到 **Actions** 分頁啟用 workflow。第一次可以手動按 **Run workflow** 測試。
-4. 之後它每 30 分鐘自動跑一次。你在 Telegram 傳訊息，下一次排程跑時就會回你。
+4. 之後它每 5 分鐘自動跑一次。你在 Telegram 傳訊息，下一次排程跑時就會回你。
 
 > ⚠️ 重要：GitHub 的排程只會從 **預設分支** 觸發。請確認 `.github/workflows/flight-check.yml`
 > 已在你的預設分支上（把這個分支合併到 `main`，或把它設成預設分支）。
 >
-> ⚠️ 取捨：Actions 是「定時跑」不是「即時掛著」，所以你傳訊息後最多要等約 30 分鐘才會收到回覆。
-> 對盯機票來說完全夠用。想更頻繁可改 `flight-check.yml` 裡的 `cron`（GitHub 最短約 5 分鐘）。
+> ⚠️ 取捨：Actions 是「定時跑」不是「即時掛著」，所以你傳訊息後最多要等約 5 分鐘才會收到回覆
+> （GitHub 排程的最短間隔就是 5 分鐘，且高峰時偶爾會再延遲幾分鐘）。對盯機票來說完全夠用。
 
 ### B. 在自己電腦／伺服器上跑（即時回覆）
 
@@ -83,7 +86,7 @@ Bot：✅ 已建立監控 …（並回報目前最低價）
 main.py                 啟動入口（模式 B：持續掛著、即時回覆）
 runner.py               一次性執行（模式 A：GitHub Actions 定時跑）
 .github/workflows/
-  flight-check.yml      每 30 分鐘自動查價並把狀態 commit 回 repo
+  flight-check.yml      每 5 分鐘自動查價並把狀態 commit 回 repo
 src/
   config.py             讀環境變數
   parser.py             訊息 → 監控設定（純邏輯，有測試）

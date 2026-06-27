@@ -2,8 +2,8 @@ name: 機票查價
 
 on:
   schedule:
-    # 每 30 分鐘跑一次（UTC）。GitHub 排程偶爾會延遲幾分鐘，屬正常現象。
-    - cron: "*/30 * * * *"
+    # 每 5 分鐘跑一次（GitHub 排程的最短間隔）。實際偶爾會延遲幾分鐘，屬正常現象。
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}  # 也可在 Actions 頁面手動按「Run workflow」立即跑一次
 
 # 避免兩次排程同時跑，造成狀態檔衝突
