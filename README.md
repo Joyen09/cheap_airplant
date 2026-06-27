@@ -12,13 +12,40 @@
 - 🔔 **兩種通知條件**：價格低於你設的預算，或比歷史最低再便宜一定比例。
 - 🗂️ **多監控管理**：`/list`、`/del`、`/check`。
 
-## 安裝
+## 兩種跑法
+
+### A. 全程在 GitHub 上跑（推薦，免下載、免伺服器）
+
+靠 **GitHub Actions** 每 30 分鐘自動執行一次：讀你傳的新訊息、查價、便宜就通知，
+狀態存回 repo 裡的 `bot_state.json`。你完全不用開電腦。
+
+設定步驟（都在瀏覽器完成）：
+
+1. 這個 repo 的 **Settings → Secrets and variables → Actions → New repository secret**，
+   新增三個 secret：
+   - `TELEGRAM_BOT_TOKEN`
+   - `AMADEUS_CLIENT_ID`
+   - `AMADEUS_CLIENT_SECRET`
+2. （可選）在同一頁的 **Variables** 分頁可設 `AMADEUS_ENV`、`CURRENCY`、`ADULTS` 等，
+   不設就用預設值（`test` / `TWD` / `1`）。
+3. 到 **Actions** 分頁啟用 workflow。第一次可以手動按 **Run workflow** 測試。
+4. 之後它每 30 分鐘自動跑一次。你在 Telegram 傳訊息，下一次排程跑時就會回你。
+
+> ⚠️ 重要：GitHub 的排程只會從 **預設分支** 觸發。請確認 `.github/workflows/flight-check.yml`
+> 已在你的預設分支上（把這個分支合併到 `main`，或把它設成預設分支）。
+>
+> ⚠️ 取捨：Actions 是「定時跑」不是「即時掛著」，所以你傳訊息後最多要等約 30 分鐘才會收到回覆。
+> 對盯機票來說完全夠用。想更頻繁可改 `flight-check.yml` 裡的 `cron`（GitHub 最短約 5 分鐘）。
+
+### B. 在自己電腦／伺服器上跑（即時回覆）
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env   # 填入你的 token / API key
 python main.py
 ```
+
+這個模式用 `python-telegram-bot` 持續掛著，傳訊息會**即時**回覆。需要一台一直開著的機器。
 
 ### 需要的金鑰
 
@@ -53,16 +80,21 @@ Bot：✅ 已建立監控 …（並回報目前最低價）
 ## 架構
 
 ```
-main.py                 啟動入口
+main.py                 啟動入口（模式 B：持續掛著、即時回覆）
+runner.py               一次性執行（模式 A：GitHub Actions 定時跑）
+.github/workflows/
+  flight-check.yml      每 30 分鐘自動查價並把狀態 commit 回 repo
 src/
   config.py             讀環境變數
   parser.py             訊息 → 監控設定（純邏輯，有測試）
   amadeus_client.py     Amadeus OAuth2 + 查價
-  storage.py            SQLite 儲存監控
+  storage.py            SQLite 儲存監控（模式 B 用）
+  json_storage.py       JSON 檔儲存（模式 A 用，可 commit 回 repo）
   monitor.py            判價邏輯：是否該通知（純邏輯，有測試）
   messages.py           組 Telegram 訊息文字
-  bot.py                Telegram handlers + 定時排程
-tests/                  parser / monitor 單元測試（免網路）
+  telegram_api.py       輕量 Telegram API（requests，模式 A 用）
+  bot.py                Telegram handlers + 定時排程（模式 B 用）
+tests/                  parser / monitor / json_storage 單元測試（免網路）
 ```
 
 ## 測試

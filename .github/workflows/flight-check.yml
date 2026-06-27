@@ -1,0 +1,53 @@
+name: 機票查價
+
+on:
+  schedule:
+    # 每 30 分鐘跑一次（UTC）。GitHub 排程偶爾會延遲幾分鐘，屬正常現象。
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}  # 也可在 Actions 頁面手動按「Run workflow」立即跑一次
+
+# 避免兩次排程同時跑，造成狀態檔衝突
+concurrency:
+  group: flight-check
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # 需要把狀態檔 commit 回 repo
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安裝相依套件
+        run: pip install requests python-dotenv
+
+      - name: 查價 & 處理訊息
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
+          AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
+          AMADEUS_ENV: ${{ vars.AMADEUS_ENV || 'test' }}
+          CURRENCY: ${{ vars.CURRENCY || 'TWD' }}
+          ADULTS: ${{ vars.ADULTS || '1' }}
+          NEW_LOW_NOTIFY_RATIO: ${{ vars.NEW_LOW_NOTIFY_RATIO || '0.05' }}
+          STATE_PATH: bot_state.json
+        run: python runner.py
+
+      - name: 把狀態存回 repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bot_state.json
+          if git diff --cached --quiet; then
+            echo "狀態沒有變化，不需要 commit。"
+          else
+            git commit -m "chore: 更新機票監控狀態 [skip ci]"
+            git push
+          fi
