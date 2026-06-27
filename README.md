@@ -55,6 +55,10 @@ python main.py
 
 這個模式用 `python-telegram-bot` 持續掛著，傳訊息會**即時**回覆。需要一台一直開著的機器。
 
+> 🚀 想免費、穩定、又能秒回（適合分享給朋友）？用 GCP 永久免費的 e2-micro VM 跑模式 B，
+> 步驟見 **[deploy/GCP_SETUP.md](deploy/GCP_SETUP.md)**。
+> 注意：跑模式 B 時請把 GitHub Actions 的排程停用，避免兩邊搶收訊息。
+
 ### 需要的金鑰
 
 | 變數 | 必填 | 怎麼拿 |

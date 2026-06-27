@@ -1,0 +1,16 @@
+[Unit]
+Description=Cheap Airplant Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 把 __USER__ 換成你的 VM 登入帳號（whoami 可查），路徑同理
+User=__USER__
+WorkingDirectory=/home/__USER__/cheap_airplant
+ExecStart=/home/__USER__/cheap_airplant/.venv/bin/python main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
