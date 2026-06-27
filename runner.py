@@ -45,6 +45,12 @@ def _handle_command(text, chat_id, store, tg) -> bool:
                 f"🗑️ 已刪除監控 #{arg}" if ok else f"找不到屬於你的監控 #{arg}",
                 html=False,
             )
+    elif cmd == "/chart":
+        tg.send_message(
+            chat_id,
+            "📈 走勢圖功能需在常駐主機模式（GCP VM）才支援，目前這個排程模式無法傳圖。",
+            html=False,
+        )
     else:
         return False
     return True

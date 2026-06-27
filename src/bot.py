@@ -49,6 +49,38 @@ class FlightBot:
             f"🗑️ 已刪除監控 #{watch_id}" if ok else f"找不到屬於你的監控 #{watch_id}"
         )
 
+    async def cmd_chart(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        from .chart import render_price_chart  # 延後 import，沒裝 matplotlib 也不影響其他指令
+
+        chat_id = update.effective_chat.id
+        watches = self.storage.list_watches(chat_id)
+        if not watches:
+            await update.message.reply_text("你還沒有任何監控喔。")
+            return
+        # /chart 3 指定某個；不給就畫全部
+        if ctx.args and ctx.args[0].lstrip("#").isdigit():
+            wid = int(ctx.args[0].lstrip("#"))
+            watches = [w for w in watches if w.id == wid]
+            if not watches:
+                await update.message.reply_text(f"找不到屬於你的監控 #{wid}")
+                return
+        for w in watches:
+            history = self.storage.get_history(w.id)
+            if len(history) < 2:
+                await update.message.reply_text(
+                    f"監控 #{w.id} 的資料還不夠畫圖（至少要 2 筆）。再等幾次查價就有了。"
+                )
+                continue
+            baseline = w.price_sum / w.price_count if w.price_count else None
+            png = render_price_chart(
+                title=f"#{w.id} {w.origin}-{w.destination} {w.depart_date}",
+                points=history, currency=w.currency,
+                threshold=w.threshold, baseline=baseline,
+            )
+            await update.message.reply_photo(
+                png, caption=f"#{w.id} {w.origin}→{w.destination} 價格走勢"
+            )
+
     async def cmd_check(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
         watches = self.storage.list_watches(chat_id)
@@ -150,6 +182,7 @@ class FlightBot:
         app.add_handler(CommandHandler("list", self.cmd_list))
         app.add_handler(CommandHandler("del", self.cmd_del))
         app.add_handler(CommandHandler("check", self.cmd_check))
+        app.add_handler(CommandHandler("chart", self.cmd_chart))
         app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_message)
         )

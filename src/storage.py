@@ -46,6 +46,13 @@ CREATE TABLE IF NOT EXISTS watches (
     price_sum    REAL    NOT NULL DEFAULT 0,
     last_alert_price REAL
 );
+CREATE TABLE IF NOT EXISTS price_history (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    watch_id  INTEGER NOT NULL,
+    ts        TEXT    NOT NULL,
+    price     REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_history_watch ON price_history (watch_id, id);
 """
 
 # 舊資料庫補欄位用（欄位已存在時 sqlite 會丟錯，忽略即可）
@@ -63,7 +70,7 @@ class Storage:
             os.makedirs(directory, exist_ok=True)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute(_SCHEMA)
+        self._conn.executescript(_SCHEMA)
         for sql in _MIGRATIONS:
             try:
                 self._conn.execute(sql)
@@ -122,7 +129,7 @@ class Storage:
         return [self._row_to_watch(r) for r in rows]
 
     def record_observation(self, watch_id: int, price: float) -> None:
-        """記錄一次查到的價格：更新歷史最低與累積統計（算常態價用）。"""
+        """記錄一次查到的價格：更新歷史最低與累積統計，並寫入歷史點（畫圖用）。"""
         self._conn.execute(
             """UPDATE watches SET
                  lowest_seen = CASE
@@ -133,7 +140,20 @@ class Storage:
                WHERE id = ?""",
             (price, price, price, watch_id),
         )
+        self._conn.execute(
+            "INSERT INTO price_history (watch_id, ts, price) VALUES (?, ?, ?)",
+            (watch_id, datetime.now(timezone.utc).isoformat(), price),
+        )
         self._conn.commit()
+
+    def get_history(self, watch_id: int, limit: int = 500) -> list[tuple[str, float]]:
+        """回傳最近 limit 筆 (時間, 價格)，依時間由舊到新。"""
+        rows = self._conn.execute(
+            "SELECT ts, price FROM price_history WHERE watch_id = ?"
+            " ORDER BY id DESC LIMIT ?",
+            (watch_id, limit),
+        ).fetchall()
+        return [(r["ts"], r["price"]) for r in reversed(rows)]
 
     def mark_alerted(self, watch_id: int, price: float) -> None:
         """記下這次通知的價格，之後只有更便宜才會再通知。"""

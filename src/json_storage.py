@@ -19,6 +19,7 @@ class JsonStorage:
         self.next_id: int = 1
         self.last_digest_date: str = ""  # 上次發送每日摘要的日期（台北時區 yyyy-mm-dd）
         self._watches: dict[int, Watch] = {}
+        self._history: dict[int, list] = {}  # {watch_id: [[ts, price], ...]}
         self._load()
 
     # ── 載入 / 儲存 ───────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ class JsonStorage:
         valid = {f.name for f in fields(Watch)}
         for w in data.get("watches", []):
             self._watches[w["id"]] = Watch(**{k: v for k, v in w.items() if k in valid})
+        self._history = {int(k): v for k, v in data.get("history", {}).items()}
 
     def save(self) -> None:
         directory = os.path.dirname(self.path)
@@ -43,6 +45,7 @@ class JsonStorage:
             "next_id": self.next_id,
             "last_digest_date": self.last_digest_date,
             "watches": [asdict(w) for w in self._watches.values()],
+            "history": {str(k): v for k, v in self._history.items()},
         }
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -85,6 +88,13 @@ class JsonStorage:
             w.lowest_seen = price
         w.price_count += 1
         w.price_sum += price
+        hist = self._history.setdefault(watch_id, [])
+        hist.append([datetime.now(timezone.utc).isoformat(), price])
+        del hist[:-1000]  # 最多保留最近 1000 筆，控制檔案大小
+
+    def get_history(self, watch_id: int, limit: int = 500) -> list[tuple[str, float]]:
+        hist = self._history.get(watch_id, [])[-limit:]
+        return [(ts, price) for ts, price in hist]
 
     def mark_alerted(self, watch_id: int, price: float) -> None:
         w = self._watches.get(watch_id)
