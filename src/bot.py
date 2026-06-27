@@ -65,10 +65,24 @@ class FlightBot:
                 await update.message.reply_text(f"找不到屬於你的監控 #{wid}")
                 return
         for w in watches:
+            # 先即時查一次、記一筆現價，讓「連按 /chart」也能累積資料
+            try:
+                res = check_watch(
+                    self.provider, w,
+                    adults=self.config.adults,
+                    good_deal_ratio=self.config.good_deal_ratio,
+                    baseline_min_samples=self.config.baseline_min_samples,
+                )
+                if res.cheapest is not None:
+                    self.storage.record_observation(w.id, res.cheapest.price)
+            except FlightError as exc:
+                logger.warning("畫圖前查價失敗 watch=%s：%s", w.id, exc)
+
             history = self.storage.get_history(w.id)
             if len(history) < 2:
                 await update.message.reply_text(
-                    f"監控 #{w.id} 的資料還不夠畫圖（至少要 2 筆）。再等幾次查價就有了。"
+                    f"監控 #{w.id} 已記錄一筆現價 👍 走勢圖至少要 2 筆，"
+                    f"再按一次 /chart（或 /check）就能看圖了。"
                 )
                 continue
             baseline = w.price_sum / w.price_count if w.price_count else None
