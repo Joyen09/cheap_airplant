@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import datetime, timezone
 
 from .storage import Watch
@@ -17,6 +17,7 @@ class JsonStorage:
         self.path = path
         self.last_update_id: int = 0
         self.next_id: int = 1
+        self.last_digest_date: str = ""  # 上次發送每日摘要的日期（台北時區 yyyy-mm-dd）
         self._watches: dict[int, Watch] = {}
         self._load()
 
@@ -28,8 +29,10 @@ class JsonStorage:
             data = json.load(f)
         self.last_update_id = data.get("last_update_id", 0)
         self.next_id = data.get("next_id", 1)
+        self.last_digest_date = data.get("last_digest_date", "")
+        valid = {f.name for f in fields(Watch)}
         for w in data.get("watches", []):
-            self._watches[w["id"]] = Watch(**w)
+            self._watches[w["id"]] = Watch(**{k: v for k, v in w.items() if k in valid})
 
     def save(self) -> None:
         directory = os.path.dirname(self.path)
@@ -38,6 +41,7 @@ class JsonStorage:
         payload = {
             "last_update_id": self.last_update_id,
             "next_id": self.next_id,
+            "last_digest_date": self.last_digest_date,
             "watches": [asdict(w) for w in self._watches.values()],
         }
         with open(self.path, "w", encoding="utf-8") as f:
@@ -73,9 +77,19 @@ class JsonStorage:
     def all_active_watches(self) -> list[Watch]:
         return [w for w in self._watches.values() if w.active]
 
-    def update_lowest_seen(self, watch_id: int, price: float) -> None:
-        if watch_id in self._watches:
-            self._watches[watch_id].lowest_seen = price
+    def record_observation(self, watch_id: int, price: float) -> None:
+        w = self._watches.get(watch_id)
+        if not w:
+            return
+        if w.lowest_seen is None or price < w.lowest_seen:
+            w.lowest_seen = price
+        w.price_count += 1
+        w.price_sum += price
+
+    def mark_alerted(self, watch_id: int, price: float) -> None:
+        w = self._watches.get(watch_id)
+        if w:
+            w.last_alert_price = price
 
     def deactivate(self, watch_id: int, chat_id: int) -> bool:
         w = self._watches.get(watch_id)

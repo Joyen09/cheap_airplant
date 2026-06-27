@@ -21,6 +21,11 @@ class Watch:
     lowest_seen: float | None
     active: int
     created_at: str
+    # 累積統計：用來算「常態價」基準（price_sum / price_count）
+    price_count: int = 0
+    price_sum: float = 0.0
+    # 上次「主動通知」當下的價格；只有比這更便宜才會再通知，避免重複轟炸
+    last_alert_price: float | None = None
 
 
 _SCHEMA = """
@@ -36,9 +41,19 @@ CREATE TABLE IF NOT EXISTS watches (
     currency     TEXT    NOT NULL DEFAULT 'TWD',
     lowest_seen  REAL,
     active       INTEGER NOT NULL DEFAULT 1,
-    created_at   TEXT    NOT NULL
+    created_at   TEXT    NOT NULL,
+    price_count  INTEGER NOT NULL DEFAULT 0,
+    price_sum    REAL    NOT NULL DEFAULT 0,
+    last_alert_price REAL
 );
 """
+
+# 舊資料庫補欄位用（欄位已存在時 sqlite 會丟錯，忽略即可）
+_MIGRATIONS = [
+    "ALTER TABLE watches ADD COLUMN price_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE watches ADD COLUMN price_sum REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE watches ADD COLUMN last_alert_price REAL",
+]
 
 
 class Storage:
@@ -49,6 +64,11 @@ class Storage:
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute(_SCHEMA)
+        for sql in _MIGRATIONS:
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError:
+                pass  # 欄位已存在
         self._conn.commit()
 
     def close(self) -> None:
@@ -101,9 +121,24 @@ class Storage:
         ).fetchall()
         return [self._row_to_watch(r) for r in rows]
 
-    def update_lowest_seen(self, watch_id: int, price: float) -> None:
+    def record_observation(self, watch_id: int, price: float) -> None:
+        """記錄一次查到的價格：更新歷史最低與累積統計（算常態價用）。"""
         self._conn.execute(
-            "UPDATE watches SET lowest_seen = ? WHERE id = ?", (price, watch_id)
+            """UPDATE watches SET
+                 lowest_seen = CASE
+                     WHEN lowest_seen IS NULL OR ? < lowest_seen THEN ?
+                     ELSE lowest_seen END,
+                 price_count = price_count + 1,
+                 price_sum   = price_sum + ?
+               WHERE id = ?""",
+            (price, price, price, watch_id),
+        )
+        self._conn.commit()
+
+    def mark_alerted(self, watch_id: int, price: float) -> None:
+        """記下這次通知的價格，之後只有更便宜才會再通知。"""
+        self._conn.execute(
+            "UPDATE watches SET last_alert_price = ? WHERE id = ?", (price, watch_id)
         )
         self._conn.commit()
 

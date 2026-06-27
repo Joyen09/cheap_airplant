@@ -27,7 +27,9 @@ class Config:
     check_interval_minutes: int
     currency: str
     adults: int
-    new_low_notify_ratio: float
+    good_deal_ratio: float        # 低於常態價多少比例算「好價」(0.15 = 15%)
+    baseline_min_samples: int     # 累積幾筆觀測後才啟用「常態價」判斷
+    digest_hour: int              # 每天幾點(台北時間)送摘要
     db_path: str
 
     @classmethod
@@ -39,7 +41,9 @@ class Config:
             check_interval_minutes=int(_get("CHECK_INTERVAL_MINUTES", "60")),
             currency=_get("CURRENCY", "TWD"),
             adults=int(_get("ADULTS", "1")),
-            new_low_notify_ratio=float(_get("NEW_LOW_NOTIFY_RATIO", "0.05")),
+            good_deal_ratio=float(_get("GOOD_DEAL_RATIO", "0.15")),
+            baseline_min_samples=int(_get("BASELINE_MIN_SAMPLES", "10")),
+            digest_hour=int(_get("DIGEST_HOUR", "9")),
             db_path=_get("DB_PATH", "data/watches.db"),
         )
         if not config.travelpayouts_token and not config.serpapi_key:

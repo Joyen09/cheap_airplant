@@ -36,7 +36,9 @@ jobs:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           CURRENCY: ${{ vars.CURRENCY || 'TWD' }}
           ADULTS: ${{ vars.ADULTS || '1' }}
-          NEW_LOW_NOTIFY_RATIO: ${{ vars.NEW_LOW_NOTIFY_RATIO || '0.05' }}
+          GOOD_DEAL_RATIO: ${{ vars.GOOD_DEAL_RATIO || '0.15' }}
+          BASELINE_MIN_SAMPLES: ${{ vars.BASELINE_MIN_SAMPLES || '10' }}
+          DIGEST_HOUR: ${{ vars.DIGEST_HOUR || '9' }}
           STATE_PATH: bot_state.json
         run: python runner.py
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time, timedelta, timezone
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -85,13 +86,14 @@ class FlightBot:
         for w in watches:
             await self._check_and_maybe_notify(ctx, w, force_report=False)
 
-    async def _check_and_maybe_notify(self, ctx, watch, force_report: bool) -> None:
+    async def _check_and_maybe_notify(self, ctx, watch, force_report: bool):
         try:
             result = check_watch(
                 self.provider,
                 watch,
                 adults=self.config.adults,
-                new_low_ratio=self.config.new_low_notify_ratio,
+                good_deal_ratio=self.config.good_deal_ratio,
+                baseline_min_samples=self.config.baseline_min_samples,
             )
         except FlightError as exc:
             logger.warning("查價失敗 watch=%s：%s", watch.id, exc)
@@ -99,12 +101,13 @@ class FlightBot:
                 await ctx.bot.send_message(
                     watch.chat_id, f"⚠️ 監控 #{watch.id} 查價失敗，稍後會再試。"
                 )
-            return
+            return None
 
-        if result.new_lowest is not None:
-            self.storage.update_lowest_seen(watch.id, result.new_lowest)
+        if result.cheapest is not None:
+            self.storage.record_observation(watch.id, result.cheapest.price)
 
         if result.should_notify and result.cheapest is not None:
+            self.storage.mark_alerted(watch.id, result.cheapest.price)
             await ctx.bot.send_message(
                 watch.chat_id,
                 messages.deal_alert(result),
@@ -122,6 +125,23 @@ class FlightBot:
                 await ctx.bot.send_message(
                     watch.chat_id, f"監控 #{watch.id}：{result.reason}。"
                 )
+        return result
+
+    # ── 排程任務：每日摘要 ────────────────────────────────────────────────
+    async def daily_digest(self, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        watches = self.storage.all_active_watches()
+        results = {}
+        for w in watches:
+            results[w.id] = await self._check_and_maybe_notify(ctx, w, force_report=False)
+        by_chat: dict = {}
+        for w in watches:
+            by_chat.setdefault(w.chat_id, []).append(w)
+        today = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d")
+        for chat_id, ws in by_chat.items():
+            await ctx.bot.send_message(
+                chat_id, messages.daily_digest(today, ws, results),
+                parse_mode=ParseMode.HTML,
+            )
 
     # ── 啟動 ──────────────────────────────────────────────────────────────
     def build_application(self) -> Application:
@@ -136,6 +156,11 @@ class FlightBot:
         interval = self.config.check_interval_minutes * 60
         app.job_queue.run_repeating(
             self.scheduled_check, interval=interval, first=interval
+        )
+        # 每天台北時間 digest_hour 送一次摘要（UTC = 台北 - 8）
+        app.job_queue.run_daily(
+            self.daily_digest,
+            time=time(hour=(self.config.digest_hour - 8) % 24),
         )
         return app
 

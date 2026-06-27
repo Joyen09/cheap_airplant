@@ -56,11 +56,34 @@ def deal_alert(result: CheckResult) -> str:
     o = result.cheapest
     assert o is not None
     link = f'\n<a href="{o.booking_link}">看這班 ✈️</a>' if o.booking_link else ""
+    title = "🔥 <b>好價來了！</b>" if result.is_good_deal else "🔔 <b>便宜機票通知！</b>"
     return (
-        "🔥 <b>便宜機票通知！</b>\n"
+        f"{title}\n"
         f"航線：{_route_label(w)}\n"
         f"目前最低：<b>{o.price:.0f} {o.currency}</b>"
         f"（{o.carrier}，{'直飛' if o.stops == 0 else f'轉{o.stops}次'}）\n"
         f"原因：{result.reason}\n"
         f"監控 #{w.id}{link}"
     )
+
+
+def daily_digest(date_str: str, watches: list[Watch], prices: dict) -> str:
+    """每日摘要：就算沒觸發通知，也固定回報每個監控目前最低價。
+
+    prices: {watch_id: CheckResult}，提供本次查到的現價與常態價。
+    """
+    lines = [f"📋 <b>每日機票摘要</b>（{date_str}）"]
+    for w in watches:
+        res = prices.get(w.id)
+        if res is not None and res.cheapest is not None:
+            o = res.cheapest
+            now = f"目前最低 <b>{o.price:.0f} {w.currency}</b>（{o.carrier}）"
+            extra = f"，常態約 {res.baseline:.0f}" if res.baseline else ""
+        else:
+            low = f"{w.lowest_seen:.0f}" if w.lowest_seen else "—"
+            now = f"目前查無報價（看過最低 {low}）"
+            extra = ""
+        budget = f"，你的預算 {w.threshold:.0f}" if w.threshold else ""
+        lines.append(f"#{w.id}　{_route_label(w)}\n　└ {now}{extra}{budget}")
+    lines.append("\n要立刻重查可按 /check，管理用 /list、/del")
+    return "\n".join(lines)

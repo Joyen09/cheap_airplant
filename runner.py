@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 
 from src import messages
 from src.config import Config
@@ -97,14 +98,17 @@ def process_updates(store: JsonStorage, tg: TelegramAPI) -> tuple[set[int], set[
     return new_watch_ids, force_chats
 
 
-def run_price_checks(store, tg, provider, config, new_watch_ids, force_chats) -> None:
+def run_price_checks(store, tg, provider, config, new_watch_ids, force_chats) -> dict:
+    """查所有監控的價。回傳 {watch_id: CheckResult}（給每日摘要用）。"""
+    results: dict = {}
     for watch in store.all_active_watches():
         force = watch.id in new_watch_ids or watch.chat_id in force_chats
         try:
             result = check_watch(
                 provider, watch,
                 adults=config.adults,
-                new_low_ratio=config.new_low_notify_ratio,
+                good_deal_ratio=config.good_deal_ratio,
+                baseline_min_samples=config.baseline_min_samples,
             )
         except FlightError as exc:
             logger.warning("查價失敗 watch=%s：%s", watch.id, exc)
@@ -116,10 +120,13 @@ def run_price_checks(store, tg, provider, config, new_watch_ids, force_chats) ->
                 )
             continue
 
-        if result.new_lowest is not None:
-            store.update_lowest_seen(watch.id, result.new_lowest)
+        results[watch.id] = result
+        # 先記錄這次觀測（更新歷史最低與常態價統計）
+        if result.cheapest is not None:
+            store.record_observation(watch.id, result.cheapest.price)
 
         if result.should_notify and result.cheapest is not None:
+            store.mark_alerted(watch.id, result.cheapest.price)
             tg.send_message(watch.chat_id, messages.deal_alert(result))
         elif force:
             if result.cheapest is not None:
@@ -134,6 +141,23 @@ def run_price_checks(store, tg, provider, config, new_watch_ids, force_chats) ->
                 tg.send_message(
                     watch.chat_id, f"監控 #{watch.id}：{result.reason}。", html=False
                 )
+    return results
+
+
+def maybe_send_digest(store, tg, config, results) -> None:
+    """每天一次（台北時間 digest_hour 之後的第一次執行）送出摘要。"""
+    now_tw = datetime.now(timezone.utc) + timedelta(hours=8)
+    today = now_tw.strftime("%Y-%m-%d")
+    if store.last_digest_date == today or now_tw.hour < config.digest_hour:
+        return
+
+    by_chat: dict = {}
+    for w in store.all_active_watches():
+        by_chat.setdefault(w.chat_id, []).append(w)
+    for chat_id, watches in by_chat.items():
+        tg.send_message(chat_id, messages.daily_digest(today, watches, results))
+    store.last_digest_date = today
+    logger.info("已送出每日摘要給 %d 個聊天室", len(by_chat))
 
 
 def main() -> None:
@@ -150,7 +174,8 @@ def main() -> None:
     logger.info("使用資料來源：%s", provider.name)
 
     new_watch_ids, force_chats = process_updates(store, tg)
-    run_price_checks(store, tg, provider, config, new_watch_ids, force_chats)
+    results = run_price_checks(store, tg, provider, config, new_watch_ids, force_chats)
+    maybe_send_digest(store, tg, config, results)
     store.save()
     logger.info("這次執行完成，狀態已存到 %s", state_path)
 
