@@ -1,4 +1,4 @@
-from src.amadeus_client import FlightOffer
+from src.flight_offer import FlightOffer
 from src.monitor import evaluate
 from src.storage import Watch
 

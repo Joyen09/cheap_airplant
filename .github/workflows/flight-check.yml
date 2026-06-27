@@ -31,9 +31,9 @@ jobs:
       - name: 查價 & 處理訊息
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
-          AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
-          AMADEUS_ENV: ${{ vars.AMADEUS_ENV || 'test' }}
+          # 機票資料來源：至少設定一個（兩個都設會自動 fallback）
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           CURRENCY: ${{ vars.CURRENCY || 'TWD' }}
           ADULTS: ${{ vars.ADULTS || '1' }}
           NEW_LOW_NOTIFY_RATIO: ${{ vars.NEW_LOW_NOTIFY_RATIO || '0.05' }}

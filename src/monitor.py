@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .amadeus_client import AmadeusClient, FlightOffer
+from .flight_offer import FlightOffer
 from .storage import Watch
 
 
@@ -65,12 +65,12 @@ def evaluate(
 
 
 def check_watch(
-    client: AmadeusClient,
+    client,
     watch: Watch,
     adults: int = 1,
     new_low_ratio: float = 0.05,
 ) -> CheckResult:
-    """實際查 Amadeus，再交給 evaluate 判斷。"""
+    """實際向資料來源查價（任何有 search_offers 的 provider），再交給 evaluate 判斷。"""
     offers = client.search_offers(
         origin=watch.origin,
         destination=watch.destination,

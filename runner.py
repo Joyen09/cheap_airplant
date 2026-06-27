@@ -13,12 +13,12 @@ import logging
 import os
 
 from src import messages
-from src.amadeus_client import AmadeusError
-from src.amadeus_client import AmadeusClient
 from src.config import Config
+from src.flight_offer import FlightError
 from src.json_storage import JsonStorage
 from src.monitor import check_watch
 from src.parser import parse_message
+from src.providers import build_provider
 from src.telegram_api import TelegramAPI
 
 logger = logging.getLogger(__name__)
@@ -97,16 +97,16 @@ def process_updates(store: JsonStorage, tg: TelegramAPI) -> tuple[set[int], set[
     return new_watch_ids, force_chats
 
 
-def run_price_checks(store, tg, amadeus, config, new_watch_ids, force_chats) -> None:
+def run_price_checks(store, tg, provider, config, new_watch_ids, force_chats) -> None:
     for watch in store.all_active_watches():
         force = watch.id in new_watch_ids or watch.chat_id in force_chats
         try:
             result = check_watch(
-                amadeus, watch,
+                provider, watch,
                 adults=config.adults,
                 new_low_ratio=config.new_low_notify_ratio,
             )
-        except AmadeusError as exc:
+        except FlightError as exc:
             logger.warning("查價失敗 watch=%s：%s", watch.id, exc)
             if force:
                 tg.send_message(
@@ -146,14 +146,11 @@ def main() -> None:
 
     store = JsonStorage(state_path)
     tg = TelegramAPI(config.telegram_token)
-    amadeus = AmadeusClient(
-        config.amadeus_client_id,
-        config.amadeus_client_secret,
-        config.amadeus_env,
-    )
+    provider = build_provider(config)
+    logger.info("使用資料來源：%s", provider.name)
 
     new_watch_ids, force_chats = process_updates(store, tg)
-    run_price_checks(store, tg, amadeus, config, new_watch_ids, force_chats)
+    run_price_checks(store, tg, provider, config, new_watch_ids, force_chats)
     store.save()
     logger.info("這次執行完成，狀態已存到 %s", state_path)
 

@@ -14,10 +14,11 @@ from telegram.ext import (
 )
 
 from . import messages
-from .amadeus_client import AmadeusClient, AmadeusError
 from .config import Config
+from .flight_offer import FlightError
 from .monitor import check_watch
 from .parser import parse_message
+from .providers import build_provider
 from .storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -27,11 +28,7 @@ class FlightBot:
     def __init__(self, config: Config):
         self.config = config
         self.storage = Storage(config.db_path)
-        self.amadeus = AmadeusClient(
-            config.amadeus_client_id,
-            config.amadeus_client_secret,
-            config.amadeus_env,
-        )
+        self.provider = build_provider(config)
 
     # ── 指令 ──────────────────────────────────────────────────────────────
     async def cmd_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -91,12 +88,12 @@ class FlightBot:
     async def _check_and_maybe_notify(self, ctx, watch, force_report: bool) -> None:
         try:
             result = check_watch(
-                self.amadeus,
+                self.provider,
                 watch,
                 adults=self.config.adults,
                 new_low_ratio=self.config.new_low_notify_ratio,
             )
-        except AmadeusError as exc:
+        except FlightError as exc:
             logger.warning("查價失敗 watch=%s：%s", watch.id, exc)
             if force_report:
                 await ctx.bot.send_message(

@@ -1,13 +1,16 @@
 # ✈️ 便宜機票通知機器人 (cheap_airplant)
 
 透過 Telegram 監控機票價格：你傳一段訊息說「從哪到哪、要不要轉乘、什麼日期、預算多少」，
-機器人就會用 [Amadeus](https://developers.amadeus.com) 的報價 API 定時幫你查價，
-**便宜了或創新低就主動推播通知**給你。
+機器人就會定時幫你查價，**便宜了或創新低就主動推播通知**給你。
+
+機票資料來源可插拔：預設用免費的 **Travelpayouts**；若同時設定 **SerpApi（Google Flights）**，
+平常走較準的 SerpApi、額度用盡時自動退回免費的 Travelpayouts。
+（原本的 Amadeus 自助版 API 將於 2026/7/17 停用，已改用上述來源。）
 
 ## 功能
 
 - 📩 **自然語言建立監控**：傳 `從 TPE 到 NRT 經 HKG 7/1 出發 7/10 回程 低於 12000` 即可。
-- 🔁 **轉乘點過濾**：指定「經 X」時，只比較有經過該機場的航班。
+- 🔁 **轉乘點過濾**：指定「經 X」時只比較有經過該機場的航班（SerpApi 精準；Travelpayouts 因不提供中轉機場，為盡力而為）。
 - ⏰ **定時自動查價**：預設每 60 分鐘掃一次所有監控（可調）。
 - 🔔 **兩種通知條件**：價格低於你設的預算，或比歷史最低再便宜一定比例。
 - 🗂️ **多監控管理**：`/list`、`/del`、`/check`。
@@ -19,18 +22,18 @@
 靠 **GitHub Actions** 每 5 分鐘自動執行一次：讀你傳的新訊息、查價、便宜就通知，
 狀態存回 repo 裡的 `bot_state.json`。你完全不用開電腦。
 
-> 💰 費用：公開 repo 的 GitHub Actions 免費且無限制。Amadeus 的 `test` 沙盒也免費；
-> 換成 `production` 正式環境每月有免費額度，5 分鐘高頻查詢可能超量而計費，請斟酌間隔與航線數。
+> 💰 費用：公開 repo 的 GitHub Actions 免費且無限制。Travelpayouts 不按次計費、高頻查詢也免費；
+> SerpApi 免費額度約 100 次/月，5 分鐘排程會很快用完，用完後會自動退回 Travelpayouts。
 
 設定步驟（都在瀏覽器完成）：
 
 1. 這個 repo 的 **Settings → Secrets and variables → Actions → New repository secret**，
-   新增三個 secret：
-   - `TELEGRAM_BOT_TOKEN`
-   - `AMADEUS_CLIENT_ID`
-   - `AMADEUS_CLIENT_SECRET`
-2. （可選）在同一頁的 **Variables** 分頁可設 `AMADEUS_ENV`、`CURRENCY`、`ADULTS` 等，
-   不設就用預設值（`test` / `TWD` / `1`）。
+   新增 secret：
+   - `TELEGRAM_BOT_TOKEN`（必填）
+   - `TRAVELPAYOUTS_TOKEN`（免費資料來源，建議至少設這個）
+   - `SERPAPI_KEY`（可選；想要更準的即時價再設，會在額度內優先使用）
+2. （可選）在同一頁的 **Variables** 分頁可設 `CURRENCY`、`ADULTS` 等，
+   不設就用預設值（`TWD` / `1`）。
 3. 到 **Actions** 分頁啟用 workflow。第一次可以手動按 **Run workflow** 測試。
 4. 之後它每 5 分鐘自動跑一次。你在 Telegram 傳訊息，下一次排程跑時就會回你。
 
@@ -52,12 +55,13 @@ python main.py
 
 ### 需要的金鑰
 
-| 變數 | 怎麼拿 |
-| --- | --- |
-| `TELEGRAM_BOT_TOKEN` | 在 Telegram 找 [@BotFather](https://t.me/BotFather) 建一個 bot |
-| `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET` | 到 [developers.amadeus.com](https://developers.amadeus.com) 註冊、建立 App |
+| 變數 | 必填 | 怎麼拿 |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | ✅ | 在 Telegram 找 [@BotFather](https://t.me/BotFather) 建一個 bot |
+| `TRAVELPAYOUTS_TOKEN` | 至少一個 | 到 [travelpayouts.com](https://www.travelpayouts.com) 免費註冊取得 token |
+| `SERPAPI_KEY` | 至少一個 | 到 [serpapi.com](https://serpapi.com) 註冊取得 API key（免費額度約 100 次/月）|
 
-> `AMADEUS_ENV=test` 是免費沙盒（資料較少、價格非即時）；上線時改成 `production`。
+> 至少要設 `TRAVELPAYOUTS_TOKEN` 或 `SERPAPI_KEY` 其中一個；兩個都設會自動 fallback。
 > 其餘可調設定（檢查間隔、幣別、人數、通知門檻）都在 `.env.example` 有註解。
 
 ## 怎麼用
@@ -90,14 +94,19 @@ runner.py               一次性執行（模式 A：GitHub Actions 定時跑）
 src/
   config.py             讀環境變數
   parser.py             訊息 → 監控設定（純邏輯，有測試）
-  amadeus_client.py     Amadeus OAuth2 + 查價
+  flight_offer.py       共用的 FlightOffer 型別與例外
+  providers/            機票資料來源（可插拔）
+    travelpayouts.py    免費、不按次計費（預設）
+    serpapi.py          Google Flights，準、即時，免費額度小
+    fallback.py         主來源額度用盡時自動退回備援
+    __init__.py         build_provider 工廠
   storage.py            SQLite 儲存監控（模式 B 用）
   json_storage.py       JSON 檔儲存（模式 A 用，可 commit 回 repo）
   monitor.py            判價邏輯：是否該通知（純邏輯，有測試）
   messages.py           組 Telegram 訊息文字
   telegram_api.py       輕量 Telegram API（requests，模式 A 用）
   bot.py                Telegram handlers + 定時排程（模式 B 用）
-tests/                  parser / monitor / json_storage 單元測試（免網路）
+tests/                  parser / monitor / json_storage / providers 單元測試（免網路）
 ```
 
 ## 測試
@@ -108,6 +117,8 @@ pytest
 
 ## 備註
 
-- 沙盒環境（`test`）的航線與價格有限，是 demo 用；要看真實價格請申請 production 金鑰。
-- Amadeus 的 Flight Offers Search 本身不支援「強制經過某機場」，本專案是
-  抓回報價後在 `monitor.py` 依轉乘機場過濾。
+- **Travelpayouts** 的價格是快取結果（別人搜過的最低價），非每次即時；且只給轉乘次數、
+  不給中轉機場，所以指定 `經 X` 時為盡力而為（有轉乘就不排除、直飛則排除）。要精準的 via
+  與即時價，設定 `SERPAPI_KEY` 即可在額度內優先使用。
+- 「強制經過某機場」是抓回報價後在 `monitor.py` 依轉乘機場過濾，而非由 API 端篩選。
+- 原 Amadeus 自助版 API 將於 2026/7/17 停用，本專案已改為上述可插拔來源。

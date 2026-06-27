@@ -55,11 +55,12 @@ def deal_alert(result: CheckResult) -> str:
     w = result.watch
     o = result.cheapest
     assert o is not None
+    link = f'\n<a href="{o.booking_link}">看這班 ✈️</a>' if o.booking_link else ""
     return (
         "🔥 <b>便宜機票通知！</b>\n"
         f"航線：{_route_label(w)}\n"
         f"目前最低：<b>{o.price:.0f} {o.currency}</b>"
         f"（{o.carrier}，{'直飛' if o.stops == 0 else f'轉{o.stops}次'}）\n"
         f"原因：{result.reason}\n"
-        f"監控 #{w.id}"
+        f"監控 #{w.id}{link}"
     )
