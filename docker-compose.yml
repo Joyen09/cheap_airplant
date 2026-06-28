@@ -1,0 +1,10 @@
+# 獨立使用：在本資料夾 `docker compose up -d --build` 即可。
+# 若要併入既有的 compose 專案（例如和 grid 同一台），見 deploy/DOCKER.md。
+services:
+  flight-bot:
+    build: .
+    container_name: flight-bot
+    env_file: .env          # 祕密從 .env 注入（不會烤進映像檔）
+    volumes:
+      - ./data:/app/data    # SQLite 監控資料留存（重建容器也不掉）
+    restart: unless-stopped

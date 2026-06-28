@@ -57,6 +57,7 @@ python main.py
 
 > 🚀 想免費、穩定、又能秒回（適合分享給朋友）？用 GCP 永久免費的 e2-micro VM 跑模式 B，
 > 步驟見 **[deploy/GCP_SETUP.md](deploy/GCP_SETUP.md)**。
+> 已經有一台跑 `docker compose` 的機器、想共用？見 **[deploy/DOCKER.md](deploy/DOCKER.md)**。
 > 注意：跑模式 B 時請把 GitHub Actions 的排程停用，避免兩邊搶收訊息。
 
 ### 需要的金鑰

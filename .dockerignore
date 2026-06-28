@@ -1,0 +1,12 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+# 不要把祕密與資料烤進映像檔（祕密用 env_file 注入、資料用 volume 掛載）
+.env
+.env.local
+data
+*.db
+bot_state.json
