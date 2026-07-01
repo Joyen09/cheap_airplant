@@ -30,7 +30,9 @@ HELP_TEXT = (
     "<b>範例</b>\n"
     "• 從 TPE 到 NRT 7/1 出發 7/10 回程 低於 12000\n"
     "• 台北 到 大阪 經 香港 來回 2026-07-01 ~ 2026-07-10\n"
-    "• TPE -> KIX 8/15 單程\n\n"
+    "• TPE -> KIX 8/15 單程\n"
+    "• TPE 到 LHR 經 HKG 轉 DXB 9/1（多個轉乘點）\n"
+    "• TPE 到 NRT 9/26 去程 18:00 前 回程 12:00 前\n\n"
     "<b>指令</b>\n"
     "/list — 看目前所有監控\n"
     "/del &lt;編號&gt; — 刪除某個監控\n"
@@ -40,10 +42,28 @@ HELP_TEXT = (
 )
 
 
+def _time_filter_label(w) -> str:
+    tf_raw = getattr(w, "time_filters", None)
+    if not tf_raw:
+        return ""
+    import json
+    tf = json.loads(tf_raw)
+    parts = []
+    if tf.get("out_before"):
+        parts.append(f"去程 {tf['out_before']} 前")
+    if tf.get("out_after"):
+        parts.append(f"去程 {tf['out_after']} 後")
+    if tf.get("ret_before"):
+        parts.append(f"回程 {tf['ret_before']} 前")
+    if tf.get("ret_after"):
+        parts.append(f"回程 {tf['ret_after']} 後")
+    return "　🕒 " + "、".join(parts) if parts else ""
+
+
 def _route_label(w) -> str:
-    via = f" 經 {w.via}" if getattr(w, "via", None) else ""
+    via = f" 經 {w.via.replace(',', '、')}" if getattr(w, "via", None) else ""
     trip = f" ↔ {w.return_date}" if getattr(w, "return_date", None) else "（單程）"
-    return f"{w.origin} → {w.destination}{via}　{w.depart_date}{trip}"
+    return f"{w.origin} → {w.destination}{via}　{w.depart_date}{trip}{_time_filter_label(w)}"
 
 
 def watch_created(w: Watch) -> str:

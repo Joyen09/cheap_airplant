@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 
 from .flight_offer import FlightOffer
@@ -26,12 +28,51 @@ class CheckResult:
     is_good_deal: bool = False         # 是否明顯低於常態價
 
 
-def _cheapest_matching(
-    offers: list[FlightOffer], via: str | None
-) -> FlightOffer | None:
-    candidates = offers
-    if via:
-        candidates = [o for o in offers if o.goes_via(via)]
+def _time_to_minutes(value: str | None) -> int | None:
+    """從時刻字串取出當天的分鐘數（找第一個 HH:MM）。"""
+    if not value:
+        return None
+    m = re.search(r"(\d{1,2}):(\d{2})", value)
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+
+def _matches_vias(offer: FlightOffer, vias: list[str]) -> bool:
+    if not vias:
+        return True
+    if offer.layovers_known:
+        return all(offer.goes_via(v) for v in vias)
+    # 來源沒有中轉機場資訊：至少轉乘次數要 >= 指定的轉乘點數
+    return offer.stops >= len(vias)
+
+
+def _passes_time(offer: FlightOffer, tf: dict) -> bool:
+    if not tf:
+        return True
+    out_dep = _time_to_minutes(offer.segments[0]["departure"]) if offer.segments else None
+    ret_dep = _time_to_minutes(offer.return_departure)
+
+    def ok(val: int | None, before: str | None, after: str | None) -> bool:
+        if val is None:      # 不知道時刻就不排除（盡力而為）
+            return True
+        if before and val > _time_to_minutes(before):
+            return False
+        if after and val < _time_to_minutes(after):
+            return False
+        return True
+
+    return (
+        ok(out_dep, tf.get("out_before"), tf.get("out_after"))
+        and ok(ret_dep, tf.get("ret_before"), tf.get("ret_after"))
+    )
+
+
+def _cheapest_matching(offers: list[FlightOffer], watch: Watch) -> FlightOffer | None:
+    vias = watch.via.split(",") if watch.via else []
+    tf = json.loads(watch.time_filters) if watch.time_filters else {}
+    candidates = [
+        o for o in offers
+        if _matches_vias(o, vias) and _passes_time(o, tf)
+    ]
     if not candidates:
         return None
     return min(candidates, key=lambda o: o.price)
@@ -48,7 +89,7 @@ def evaluate(
     用 watch 目前（更新前）的統計來判斷；實際的統計更新由呼叫端在事後
     呼叫 storage.record_observation / mark_alerted 完成。
     """
-    cheapest = _cheapest_matching(offers, watch.via)
+    cheapest = _cheapest_matching(offers, watch)
     if cheapest is None:
         return CheckResult(watch, None, False, "查無符合條件的航班")
 

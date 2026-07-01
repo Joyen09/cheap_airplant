@@ -28,6 +28,9 @@ class FlightOffer:
     # 次數、不給中轉機場，這時設 False，goes_via 會改用「無法否證」的寬鬆判斷。
     layovers_known: bool = True
     booking_link: str | None = None
+    # 回程去程時刻（ISO 或含 HH:MM 的字串）；用於時間過濾。
+    # 去程時刻取自 segments[0]；回程時刻部分來源才有（如 Travelpayouts 的 return_at）。
+    return_departure: str | None = None
 
     def goes_via(self, via: str) -> bool:
         """這個報價是否經過指定的轉乘機場。"""

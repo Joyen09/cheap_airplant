@@ -120,6 +120,7 @@ class FlightBot:
             return_date=parsed.return_date,
             threshold=parsed.threshold,
             currency=self.config.currency,
+            time_filters=parsed.time_filters,
         )
         await update.message.reply_html(messages.watch_created(watch))
         # 馬上查一次給使用者一個基準價

@@ -57,3 +57,27 @@ def test_arrow_route_with_threshold_symbol():
     assert p.origin == "TPE"
     assert p.destination == "FUK"
     assert p.threshold == 8000
+
+
+def test_multiple_vias():
+    p = parse_message("台北 到 NRT 中轉 YXY 轉 KIX 9/26 出發 10/4 回程 低於 25000", TODAY)
+    assert p.ok
+    assert p.origin == "TPE"
+    assert p.destination == "NRT"
+    assert p.via == "YXY,KIX"           # 兩個轉乘點
+    assert p.depart_date == "2026-09-26"
+    assert p.return_date == "2026-10-04"
+    assert p.threshold == 25000
+
+
+def test_time_filters():
+    import json
+    p = parse_message("TPE 到 NRT 9/26 去程 18:00 前 回程 6點 後", TODAY)
+    assert p.ok
+    tf = json.loads(p.time_filters)
+    assert tf == {"out_before": "18:00", "ret_after": "06:00"}
+
+
+def test_no_time_filters():
+    p = parse_message("TPE 到 NRT 9/26", TODAY)
+    assert p.time_filters is None

@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -52,10 +53,11 @@ CITY_TO_IATA: dict[str, str] = {
 class ParsedWatch:
     origin: str | None = None
     destination: str | None = None
-    via: str | None = None
+    via: str | None = None          # 多個轉乘點以逗號連接，例如 "HKG,ICN"
     depart_date: str | None = None  # ISO yyyy-mm-dd
     return_date: str | None = None  # ISO yyyy-mm-dd or None = 單程
     threshold: float | None = None
+    time_filters: str | None = None  # JSON，例如 {"out_before":"18:00","ret_before":"12:00"}
     error: str | None = None
 
     @property
@@ -143,11 +145,46 @@ def _extract_threshold(text: str) -> float | None:
     return None
 
 
-def _extract_via(text: str) -> str | None:
-    m = re.search(r"(?:經由|經|轉機?|中轉|via)\s*[:：]?\s*([A-Za-z]{3}|[一-鿿]{2,4})", text)
-    if m:
-        return _resolve_place(m.group(1))
+_VIA_RE = r"(?:經由|經|轉機?|中轉|via)\s*[:：]?\s*([A-Za-z]{3}|[一-鿿]{2,4})"
+# 去程/回程 幾點前/後，例如「去程 18:00 前」「回程 6點以後」
+_TIME_RE = re.compile(
+    r"(去程|回程)\s*(?:在|於)?\s*(\d{1,2}(?::\d{2})?)\s*點?\s*(以前|之前|前|以後|之後|後)"
+)
+
+
+def _extract_vias(text: str) -> list[str]:
+    """抓出所有轉乘點（依出現順序、去重）。"""
+    vias: list[str] = []
+    for m in re.finditer(_VIA_RE, text):
+        v = _resolve_place(m.group(1))
+        if v and v not in vias:
+            vias.append(v)
+    return vias
+
+
+def _norm_time(raw: str) -> str | None:
+    raw = raw.strip()
+    if ":" in raw:
+        h, mi = raw.split(":")
+        h, mi = int(h), int(mi)
+    else:
+        h, mi = int(raw), 0
+    if 0 <= h <= 23 and 0 <= mi <= 59:
+        return f"{h:02d}:{mi:02d}"
     return None
+
+
+def _extract_time_filters(text: str) -> dict:
+    """抓出去程/回程的時間限制。回傳如 {"out_before":"18:00","ret_after":"09:00"}。"""
+    tf: dict = {}
+    for m in _TIME_RE.finditer(text):
+        t = _norm_time(m.group(2))
+        if not t:
+            continue
+        leg = "out" if m.group(1) == "去程" else "ret"
+        direction = "before" if m.group(3) in ("以前", "之前", "前") else "after"
+        tf[f"{leg}_{direction}"] = t
+    return tf
 
 
 def _extract_route(text: str) -> tuple[str | None, str | None]:
@@ -175,17 +212,18 @@ def parse_message(text: str, today: date | None = None) -> ParsedWatch:
     if not text or not text.strip():
         return ParsedWatch(error="訊息是空的。")
 
-    # 先把「經X」段落抽掉，避免轉乘點被誤當成目的地
-    via = _extract_via(text)
-    route_text = re.sub(
-        r"(?:經由|經|轉機?|中轉|via)\s*[:：]?\s*(?:[A-Za-z]{3}|[一-鿿]{2,4})",
-        " ",
-        text,
-    )
+    # 先把「經X」「去程 18:00 前」等段落抽掉，避免被誤當成目的地或日期
+    vias = _extract_vias(text)
+    time_filters = _extract_time_filters(text)
+    route_text = re.sub(_VIA_RE, " ", text)
+    route_text = _TIME_RE.sub(" ", route_text)
 
     origin, destination = _extract_route(route_text)
     dates = _extract_dates(text, today)
     threshold = _extract_threshold(text)
+
+    via = ",".join(vias) if vias else None
+    tf_json = json.dumps(time_filters) if time_filters else None
 
     is_oneway = bool(re.search(r"單程|oneway|one way", text, re.IGNORECASE))
 
@@ -210,6 +248,7 @@ def parse_message(text: str, today: date | None = None) -> ParsedWatch:
             depart_date=depart,
             return_date=ret,
             threshold=threshold,
+            time_filters=tf_json,
             error="看不懂這些資訊：" + "、".join(missing)
             + "。範例：『從 TPE 到 NRT 7/1 出發 7/10 回程 低於 12000』",
         )
@@ -221,4 +260,5 @@ def parse_message(text: str, today: date | None = None) -> ParsedWatch:
         depart_date=depart,
         return_date=ret,
         threshold=threshold,
+        time_filters=tf_json,
     )

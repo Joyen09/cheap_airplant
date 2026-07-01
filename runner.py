@@ -97,6 +97,7 @@ def process_updates(store: JsonStorage, tg: TelegramAPI) -> tuple[set[int], set[
             return_date=parsed.return_date,
             threshold=parsed.threshold,
             currency=os.getenv("CURRENCY", "TWD"),
+            time_filters=parsed.time_filters,
         )
         tg.send_message(chat_id, messages.watch_created(watch))
         new_watch_ids.add(watch.id)

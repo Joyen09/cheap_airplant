@@ -52,7 +52,7 @@ class JsonStorage:
 
     # ── CRUD ─────────────────────────────────────────────────────────────
     def add_watch(self, chat_id, origin, destination, via, depart_date,
-                  return_date, threshold, currency) -> Watch:
+                  return_date, threshold, currency, time_filters=None) -> Watch:
         watch = Watch(
             id=self.next_id,
             chat_id=chat_id,
@@ -66,6 +66,7 @@ class JsonStorage:
             lowest_seen=None,
             active=1,
             created_at=datetime.now(timezone.utc).isoformat(),
+            time_filters=time_filters,
         )
         self._watches[watch.id] = watch
         self.next_id += 1

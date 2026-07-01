@@ -4,7 +4,8 @@ from src.storage import Watch
 
 
 def make_watch(threshold=None, lowest_seen=None, via=None,
-               price_count=0, price_sum=0.0, last_alert_price=None) -> Watch:
+               price_count=0, price_sum=0.0, last_alert_price=None,
+               time_filters=None) -> Watch:
     return Watch(
         id=1,
         chat_id=99,
@@ -21,6 +22,7 @@ def make_watch(threshold=None, lowest_seen=None, via=None,
         price_count=price_count,
         price_sum=price_sum,
         last_alert_price=last_alert_price,
+        time_filters=time_filters,
     )
 
 
@@ -94,3 +96,39 @@ def test_via_filter_matches_and_notifies():
     r = evaluate(w, [offer(9000), offer(12000, via_to="HKG")])
     assert r.cheapest.price == 12000
     assert r.should_notify
+
+
+def test_multiple_vias_require_all():
+    # 需要同時經 HKG 與 ICN；只經 HKG 的不算
+    w = make_watch(threshold=99999, via="HKG,ICN")
+    only_hkg = FlightOffer(price=8000, currency="TWD", carrier="X", stops=1,
+                           segments=[{"from": "TPE", "to": "HKG"},
+                                     {"from": "HKG", "to": "NRT"}])
+    both = FlightOffer(price=12000, currency="TWD", carrier="Y", stops=2,
+                       segments=[{"from": "TPE", "to": "HKG"},
+                                 {"from": "HKG", "to": "ICN"},
+                                 {"from": "ICN", "to": "NRT"}])
+    r = evaluate(w, [only_hkg, both])
+    assert r.cheapest.price == 12000   # 只有經過兩個點的才符合
+
+
+def test_time_filter_outbound_before():
+    w = make_watch(threshold=99999, time_filters='{"out_before":"12:00"}')
+    early = FlightOffer(price=9000, currency="TWD", carrier="A", stops=0,
+                        segments=[{"from": "TPE", "to": "NRT",
+                                   "departure": "2026-07-01 08:30"}])
+    late = FlightOffer(price=7000, currency="TWD", carrier="B", stops=0,
+                       segments=[{"from": "TPE", "to": "NRT",
+                                  "departure": "2026-07-01 15:00"}])
+    r = evaluate(w, [early, late])
+    assert r.cheapest.price == 9000    # 便宜的 15:00 被時間條件排除
+
+
+def test_time_filter_skips_when_unknown():
+    # 回程時刻未知（return_departure=None）→ 回程條件不排除
+    w = make_watch(threshold=99999, time_filters='{"ret_before":"12:00"}')
+    o = FlightOffer(price=9000, currency="TWD", carrier="A", stops=0,
+                    segments=[{"from": "TPE", "to": "NRT",
+                               "departure": "2026-07-01 08:30"}])
+    r = evaluate(w, [o])
+    assert r.cheapest.price == 9000

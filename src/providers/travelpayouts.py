@@ -80,6 +80,7 @@ class TravelpayoutsClient:
                     ],
                     layovers_known=False,  # 此端點不給中轉機場
                     booking_link=_full_link(row.get("link")),
+                    return_departure=row.get("return_at"),
                 )
             )
         return offers

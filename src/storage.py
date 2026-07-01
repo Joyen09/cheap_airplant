@@ -26,6 +26,8 @@ class Watch:
     price_sum: float = 0.0
     # 上次「主動通知」當下的價格；只有比這更便宜才會再通知，避免重複轟炸
     last_alert_price: float | None = None
+    # 去程/回程時間限制的 JSON，例如 {"out_before":"18:00","ret_before":"12:00"}
+    time_filters: str | None = None
 
 
 _SCHEMA = """
@@ -44,7 +46,8 @@ CREATE TABLE IF NOT EXISTS watches (
     created_at   TEXT    NOT NULL,
     price_count  INTEGER NOT NULL DEFAULT 0,
     price_sum    REAL    NOT NULL DEFAULT 0,
-    last_alert_price REAL
+    last_alert_price REAL,
+    time_filters TEXT
 );
 CREATE TABLE IF NOT EXISTS price_history (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +63,7 @@ _MIGRATIONS = [
     "ALTER TABLE watches ADD COLUMN price_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE watches ADD COLUMN price_sum REAL NOT NULL DEFAULT 0",
     "ALTER TABLE watches ADD COLUMN last_alert_price REAL",
+    "ALTER TABLE watches ADD COLUMN time_filters TEXT",
 ]
 
 
@@ -95,15 +99,16 @@ class Storage:
         return_date: str | None,
         threshold: float | None,
         currency: str,
+        time_filters: str | None = None,
     ) -> Watch:
         now = datetime.now(timezone.utc).isoformat()
         cur = self._conn.execute(
             """INSERT INTO watches
                (chat_id, origin, destination, via, depart_date, return_date,
-                threshold, currency, lowest_seen, active, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)""",
+                threshold, currency, lowest_seen, active, created_at, time_filters)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?)""",
             (chat_id, origin, destination, via, depart_date, return_date,
-             threshold, currency, now),
+             threshold, currency, now, time_filters),
         )
         self._conn.commit()
         return self.get_watch(cur.lastrowid)  # type: ignore[arg-type]
