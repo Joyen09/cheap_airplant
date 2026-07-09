@@ -48,9 +48,6 @@ class Config:
             digest_hour=int(_get("DIGEST_HOUR", "9")),
             db_path=_get("DB_PATH", "data/watches.db"),
         )
-        if not config.travelpayouts_token and not config.serpapi_key:
-            raise RuntimeError(
-                "請至少設定一個機票資料來源：TRAVELPAYOUTS_TOKEN 或 SERPAPI_KEY"
-                "（見 .env.example）。"
-            )
+        # Google Flights（fast-flights）不需金鑰，永遠可用；
+        # TRAVELPAYOUTS_TOKEN / SERPAPI_KEY 為可選備援。
         return config

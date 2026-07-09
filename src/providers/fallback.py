@@ -21,7 +21,7 @@ class FallbackProvider:
     def search_offers(self, **kwargs) -> list[FlightOffer]:
         try:
             offers = self.primary.search_offers(**kwargs)
-            self.last_used = self.primary.name
+            self.last_used = getattr(self.primary, "last_used", self.primary.name)
             return offers
         except FlightError as exc:
             # 額度用盡、或查無結果、或任何暫時性錯誤 → 一律改用免費備援再試一次
@@ -30,5 +30,6 @@ class FallbackProvider:
                 "主要來源 %s %s（%s），改用備援 %s",
                 self.primary.name, kind, exc, self.fallback.name,
             )
-            self.last_used = self.fallback.name
-            return self.fallback.search_offers(**kwargs)
+            offers = self.fallback.search_offers(**kwargs)
+            self.last_used = getattr(self.fallback, "last_used", self.fallback.name)
+            return offers

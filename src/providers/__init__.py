@@ -1,36 +1,35 @@
 """依設定組出要用的機票資料來源。
 
-規則（符合「兩種都接，超量走免費的」）：
-  * 同時有 SerpApi 與 Travelpayouts → 主要用 SerpApi（準），額度用盡自動退回 Travelpayouts。
-  * 只有其中一個 → 就用那一個。
-  * 都沒有 → 報錯，請去設定 token。
+順序（前面的失敗自動退到後面）：
+  1. Google Flights（fast-flights，免費、即時、免 API key）— 永遠是主力
+  2. SerpApi（設定 SERPAPI_KEY 才加入）— 額度內的備援
+  3. Travelpayouts（設定 TRAVELPAYOUTS_TOKEN 才加入）— 免費快取備援
 """
 from __future__ import annotations
 
 from .fallback import FallbackProvider
+from .google_flights import GoogleFlightsClient
 from .serpapi import SerpApiClient
 from .travelpayouts import TravelpayoutsClient
 
 
 def build_provider(config):
-    tp = (
-        TravelpayoutsClient(config.travelpayouts_token)
-        if config.travelpayouts_token
-        else None
-    )
-    serp = SerpApiClient(config.serpapi_key) if config.serpapi_key else None
+    chain = [GoogleFlightsClient()]
+    if getattr(config, "serpapi_key", ""):
+        chain.append(SerpApiClient(config.serpapi_key))
+    if getattr(config, "travelpayouts_token", ""):
+        chain.append(TravelpayoutsClient(config.travelpayouts_token))
 
-    if serp and tp:
-        # 平常走 SerpApi（即時、可精準 via），超量退回免費的 Travelpayouts
-        return FallbackProvider(primary=serp, fallback=tp)
-    if serp:
-        return serp
-    if tp:
-        return tp
-    raise RuntimeError(
-        "沒有設定任何機票資料來源。請至少設定 TRAVELPAYOUTS_TOKEN "
-        "或 SERPAPI_KEY 其中一個（見 .env.example）。"
-    )
+    provider = chain[-1]
+    for p in reversed(chain[:-1]):
+        provider = FallbackProvider(primary=p, fallback=provider)
+    return provider
 
 
-__all__ = ["build_provider", "FallbackProvider", "SerpApiClient", "TravelpayoutsClient"]
+__all__ = [
+    "build_provider",
+    "FallbackProvider",
+    "GoogleFlightsClient",
+    "SerpApiClient",
+    "TravelpayoutsClient",
+]

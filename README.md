@@ -5,9 +5,10 @@
 兩個平台功能完全一樣（共用同一套核心邏輯）：Telegram 跑 `main.py`、Discord 跑
 `main_discord.py`，設定見 **[deploy/DISCORD.md](deploy/DISCORD.md)**。
 
-機票資料來源可插拔：預設用免費的 **Travelpayouts**；若同時設定 **SerpApi（Google Flights）**，
-平常走較準的 SerpApi、額度用盡時自動退回免費的 Travelpayouts。
-（原本的 Amadeus 自助版 API 將於 2026/7/17 停用，已改用上述來源。）
+機票資料來源可插拔，依序自動 fallback：
+**Google Flights（fast-flights，免費、即時、免金鑰）→ SerpApi（可選）→ Travelpayouts（可選）**。
+主力 Google Flights 不需要任何 API key；後兩個是備援，設不設都能跑。
+（原本的 Amadeus 自助版 API 已於 2026/7 停用，已改用上述來源。）
 
 ## 功能
 
