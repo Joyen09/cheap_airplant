@@ -9,15 +9,39 @@ from .storage import Watch
 
 
 def _google_flights_url(w) -> str:
-    """用航線＋日期直接組一個 Google Flights 查詢連結（不依賴 API 回傳）。"""
-    q = f"flights from {w.origin} to {w.destination} on {w.depart_date}"
-    if getattr(w, "return_date", None):
-        q += f" returning {w.return_date}"
-    return "https://www.google.com/travel/flights?q=" + quote(q)
+    """組一個「一開就已拉好搜尋條件」的 Google Flights 連結。
+
+    優先用 fast-flights 產生 tfs 編碼連結（航線/日期/來回/幣別都帶入）；
+    沒裝該套件時退回自然語言查詢格式。
+    """
+    try:
+        from fast_flights import FlightQuery, Passengers, create_query
+
+        legs = [FlightQuery(date=w.depart_date, from_airport=w.origin,
+                            to_airport=w.destination)]
+        ret = getattr(w, "return_date", None)
+        if ret:
+            legs.append(FlightQuery(date=ret, from_airport=w.destination,
+                                    to_airport=w.origin))
+        q = create_query(
+            flights=legs,
+            trip="round-trip" if ret else "one-way",
+            passengers=Passengers(adults=1),
+            currency=getattr(w, "currency", "") or "",
+            language="zh-TW",
+        )
+        return q.url()
+    except Exception:  # noqa: BLE001 - 連結產生失敗就退回舊格式
+        q = f"flights from {w.origin} to {w.destination} on {w.depart_date}"
+        if getattr(w, "return_date", None):
+            q += f" returning {w.return_date}"
+        return "https://www.google.com/travel/flights?q=" + quote(q)
 
 
 def _booking_section(w, offer) -> str:
-    lines = [f'🔗 <a href="{_google_flights_url(w)}">在 Google Flights 查看／訂票</a>']
+    lines = [f'🔗 <a href="{_google_flights_url(w)}">在 Google Flights 查看／訂票（條件已帶入）</a>']
+    if getattr(w, "time_filters", None):
+        lines.append("　└ 時間條件連結帶不進去，進頁面點「時間」篩選即可（回報價已符合）")
     if offer is not None and offer.booking_link:
         lines.append(f'　└ 或<a href="{offer.booking_link}">資料來源的訂票頁</a>')
     if offer is not None and offer.carrier:
