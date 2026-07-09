@@ -11,11 +11,16 @@ from .storage import Watch
 def _google_flights_url(w) -> str:
     """組一個「一開就已拉好搜尋條件」的 Google Flights 連結。
 
-    優先用 fast-flights 產生 tfs 編碼連結（航線/日期/來回/幣別都帶入）；
-    沒裝該套件時退回自然語言查詢格式。
+    用 fast-flights 產生 tfs 編碼連結（航線/日期/來回/幣別），再由 gflink
+    把時間限制（幾點前/後）與轉機點也補進 tfs——一開頁全部條件都套好。
+    沒裝套件或失敗時退回自然語言查詢格式。
     """
     try:
+        import json
+
         from fast_flights import FlightQuery, Passengers, create_query
+
+        from .gflink import augment_tfs
 
         legs = [FlightQuery(date=w.depart_date, from_airport=w.origin,
                             to_airport=w.destination)]
@@ -30,7 +35,15 @@ def _google_flights_url(w) -> str:
             currency=getattr(w, "currency", "") or "",
             language="zh-TW",
         )
-        return q.url()
+        tfs = q.params()["tfs"]
+        tf_raw = getattr(w, "time_filters", None)
+        vias = w.via.split(",") if getattr(w, "via", None) else []
+        tfs = augment_tfs(tfs, json.loads(tf_raw) if tf_raw else None, vias)
+        cur = getattr(w, "currency", "") or ""
+        return (
+            "https://www.google.com/travel/flights/search"
+            f"?tfs={tfs}&hl=zh-TW&curr={cur}"
+        )
     except Exception:  # noqa: BLE001 - 連結產生失敗就退回舊格式
         q = f"flights from {w.origin} to {w.destination} on {w.depart_date}"
         if getattr(w, "return_date", None):
@@ -39,9 +52,7 @@ def _google_flights_url(w) -> str:
 
 
 def _booking_section(w, offer) -> str:
-    lines = [f'🔗 <a href="{_google_flights_url(w)}">在 Google Flights 查看／訂票（條件已帶入）</a>']
-    if getattr(w, "time_filters", None):
-        lines.append("　└ 時間條件連結帶不進去，進頁面點「時間」篩選即可（回報價已符合）")
+    lines = [f'🔗 <a href="{_google_flights_url(w)}">在 Google Flights 查看／訂票（含時間/轉機條件）</a>']
     if offer is not None and offer.booking_link:
         lines.append(f'　└ 或<a href="{offer.booking_link}">資料來源的訂票頁</a>')
     if offer is not None and offer.carrier:
