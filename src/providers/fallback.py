@@ -16,10 +16,13 @@ class FallbackProvider:
         self.primary = primary
         self.fallback = fallback
         self.name = f"{primary.name}->{fallback.name}"
+        self.last_used = self.name  # 最近一次實際回應的來源
 
     def search_offers(self, **kwargs) -> list[FlightOffer]:
         try:
-            return self.primary.search_offers(**kwargs)
+            offers = self.primary.search_offers(**kwargs)
+            self.last_used = self.primary.name
+            return offers
         except FlightError as exc:
             # 額度用盡、或查無結果、或任何暫時性錯誤 → 一律改用免費備援再試一次
             kind = "額度用盡" if isinstance(exc, QuotaExceeded) else "查詢失敗"
@@ -27,4 +30,5 @@ class FallbackProvider:
                 "主要來源 %s %s（%s），改用備援 %s",
                 self.primary.name, kind, exc, self.fallback.name,
             )
+            self.last_used = self.fallback.name
             return self.fallback.search_offers(**kwargs)

@@ -147,8 +147,14 @@ def check_watch(
         adults=adults,
         currency=watch.currency,
     )
-    return evaluate(
+    result = evaluate(
         watch, offers,
         good_deal_ratio=good_deal_ratio,
         baseline_min_samples=baseline_min_samples,
     )
+    if result.cheapest is None:
+        source = getattr(client, "last_used", getattr(client, "name", "?"))
+        hint = "（快取價資料庫沒有這組日期的紀錄，之後查到會自動補上）" \
+            if source == "travelpayouts" else ""
+        result.reason = f"查無符合條件的航班｜來源：{source}{hint}"
+    return result
