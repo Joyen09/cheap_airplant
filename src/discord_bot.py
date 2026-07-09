@@ -63,6 +63,10 @@ class FlightDiscordBot:
         @bot.event
         async def on_ready():
             logger.info("Discord bot 已登入：%s", bot.user)
+            if not getattr(self, "_views_registered", False):
+                from .discord_wizard import StartView
+                bot.add_view(StartView(self))  # persistent：重啟後舊按鈕仍可用
+                self._views_registered = True
             if not self._sched_loop.is_running():
                 self._sched_loop.start()
             if not self._digest_loop.is_running():
@@ -92,7 +96,16 @@ class FlightDiscordBot:
         arg = rest[0] if rest else ""
 
         if cmd in ("help", "start"):
-            await self._reply(msg, messages.HELP_TEXT)
+            from .discord_wizard import StartView
+            await msg.channel.send(
+                _to_discord(messages.HELP_TEXT), view=StartView(self))
+        elif cmd in ("new", "menu", "開始", "建立") and not arg:
+            # 只在整句就是關鍵字時開精靈；「建立 台北到東京 9/26」這種
+            # 完整描述要留給下面的自然語言解析，不能吞掉
+            from .discord_wizard import StartView
+            await msg.channel.send(
+                "點下面的按鈕，一步步建立監控（會先顯示目前行情）👇",
+                view=StartView(self))
         elif cmd == "list":
             await self._reply(msg, messages.list_watches(
                 self.storage.list_watches(msg.channel.id)))
@@ -163,7 +176,11 @@ class FlightDiscordBot:
     async def _cmd_new_watch(self, msg, content) -> None:
         parsed = parse_message(content)
         if not parsed.ok:
-            await msg.channel.send(_to_discord(messages.parse_failed(parsed)))
+            from .discord_wizard import StartView
+            await msg.channel.send(
+                _to_discord(messages.parse_failed(parsed))
+                + "\n也可以改用按鈕一步步填 👇",
+                view=StartView(self))
             return
         watch = self.storage.add_watch(
             chat_id=msg.channel.id,

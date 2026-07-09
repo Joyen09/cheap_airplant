@@ -46,15 +46,22 @@ class TravelpayoutsClient:
         if return_date:
             params["return_at"] = return_date
 
-        resp = self._session.get(_ENDPOINT, params=params, timeout=30)
-        if resp.status_code in (401, 403):
-            raise FlightError(f"Travelpayouts 授權失敗（token 有誤？）：{resp.text}")
-        if resp.status_code == 429:
-            raise QuotaExceeded(f"Travelpayouts 被限流：{resp.text}")
-        if resp.status_code != 200:
-            raise FlightError(f"Travelpayouts 查價失敗：{resp.status_code} {resp.text}")
+        try:
+            resp = self._session.get(_ENDPOINT, params=params, timeout=30)
+            if resp.status_code in (401, 403):
+                raise FlightError(f"Travelpayouts 授權失敗（token 有誤？）：{resp.text}")
+            if resp.status_code == 429:
+                raise QuotaExceeded(f"Travelpayouts 被限流：{resp.text}")
+            if resp.status_code != 200:
+                raise FlightError(
+                    f"Travelpayouts 查價失敗：{resp.status_code} {resp.text}")
+            payload = resp.json()
+        except FlightError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 網路/JSON 錯誤也走 FlightError
+            raise FlightError(f"Travelpayouts 連線失敗：{exc}") from exc
 
-        return self._parse(resp.json(), currency)
+        return self._parse(payload, currency)
 
     @staticmethod
     def _parse(payload: dict, currency: str) -> list[FlightOffer]:

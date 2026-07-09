@@ -44,10 +44,19 @@ class SerpApiClient:
         if return_date:
             params["return_date"] = return_date
 
-        resp = self._session.get(_ENDPOINT, params=params, timeout=60)
-        if resp.status_code == 429:
-            raise QuotaExceeded("SerpApi 免費額度/速率用盡（429）")
-        data = resp.json() if resp.content else {}
+        try:
+            resp = self._session.get(_ENDPOINT, params=params, timeout=60)
+            if resp.status_code == 429:
+                raise QuotaExceeded("SerpApi 免費額度/速率用盡（429）")
+            try:
+                data = resp.json() if resp.content else {}
+            except ValueError:  # 非 JSON（如 502 的 HTML 錯誤頁）
+                raise FlightError(
+                    f"SerpApi 回應非 JSON：{resp.status_code} {resp.text[:200]}")
+        except FlightError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 網路層錯誤也走 FlightError
+            raise FlightError(f"SerpApi 連線失敗：{exc}") from exc
         error = data.get("error")
         if error:
             # SerpApi 額度用盡時是 200 + error 訊息，要靠字串判斷

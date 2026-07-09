@@ -106,3 +106,26 @@ def test_fallback_switches_on_any_flight_error():
     fb = FallbackProvider(primary=_NoResults(), fallback=_Stub(["fb"]))
     assert fb.search_offers(origin="TPE", destination="XXX",
                             depart_date="2026-07-01") == ["fb"]
+
+
+def test_providers_wrap_network_errors_as_flight_error():
+    # 網路層例外（Timeout/ConnectionError）必須包成 FlightError，
+    # 否則 fallback 鏈與排程的 except FlightError 都攔不住
+    import requests
+    import pytest
+
+    class _BoomSession:
+        def get(self, *a, **k):
+            raise requests.ConnectionError("boom")
+
+    tp = TravelpayoutsClient("t")
+    tp._session = _BoomSession()
+    with pytest.raises(FlightError):
+        tp.search_offers(origin="TPE", destination="NRT",
+                         depart_date="2026-09-18")
+
+    serp = SerpApiClient("k")
+    serp._session = _BoomSession()
+    with pytest.raises(FlightError):
+        serp.search_offers(origin="TPE", destination="NRT",
+                           depart_date="2026-09-18")

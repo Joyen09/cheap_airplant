@@ -1,0 +1,175 @@
+"""按鈕式建立監控（精靈）的純邏輯：不碰 Discord API，方便測試。"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import date
+from statistics import median
+
+from .flight_offer import FlightOffer
+from .parser import _parse_one_date, _resolve_place
+
+
+@dataclass
+class Draft:
+    """建立中的監控草稿。"""
+    origin: str | None = None
+    destination: str | None = None
+    depart_date: str | None = None
+    return_date: str | None = None
+    threshold: float | None = None
+    vias: list[str] = field(default_factory=list)
+    time_filters: dict = field(default_factory=dict)
+
+    @property
+    def via_str(self) -> str | None:
+        return ",".join(self.vias) if self.vias else None
+
+    @property
+    def time_filters_json(self) -> str | None:
+        return json.dumps(self.time_filters) if self.time_filters else None
+
+
+def resolve_place(text: str) -> str | None:
+    """城市中文/英文名或 IATA → 代碼；認不得回 None。"""
+    return _resolve_place((text or "").strip())
+
+
+def parse_date_input(text: str, today: date | None = None) -> str | None:
+    """'9/26'、'2026-09-26'、'9月26日' → ISO；認不得回 None。"""
+    return _parse_one_date((text or "").strip(), today or date.today())
+
+
+def parse_budget_input(text: str) -> float | None:
+    text = (text or "").strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def parse_vias_input(text: str) -> tuple[list[str], list[str]]:
+    """'香港, ICN' → (['HKG','ICN'], [認不得的字])。"""
+    codes: list[str] = []
+    bad: list[str] = []
+    for token in (text or "").replace("、", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        code = resolve_place(token)
+        if code and code not in codes:
+            codes.append(code)
+        elif not code:
+            bad.append(token)
+    return codes, bad
+
+
+# ── 時段預設（下拉選單用）───────────────────────────────────────────────────
+# key → (顯示文字, 方向, HH:MM)；方向 None = 清除限制
+TIME_PRESETS: dict[str, tuple[str, str | None, str | None]] = {
+    "any":      ("不限時間", None, None),
+    "after06":  ("06:00 以後", "after", "06:00"),
+    "after09":  ("09:00 以後", "after", "09:00"),
+    "after12":  ("12:00 以後", "after", "12:00"),
+    "after15":  ("15:00 以後", "after", "15:00"),
+    "after18":  ("18:00 以後", "after", "18:00"),
+    "before12": ("12:00 以前", "before", "12:00"),
+    "before15": ("15:00 以前", "before", "15:00"),
+    "before18": ("18:00 以前", "before", "18:00"),
+    "before21": ("21:00 以前", "before", "21:00"),
+}
+
+
+def apply_time_preset(draft: Draft, leg: str, preset_key: str) -> None:
+    """leg: 'out' 或 'ret'。套用/清除該航段的時段限制。"""
+    _, direction, hhmm = TIME_PRESETS[preset_key]
+    draft.time_filters.pop(f"{leg}_before", None)
+    draft.time_filters.pop(f"{leg}_after", None)
+    if direction:
+        draft.time_filters[f"{leg}_{direction}"] = hhmm
+
+
+# ── 行情摘要與預算建議 ────────────────────────────────────────────────────────
+def price_context(offers: list[FlightOffer]) -> dict | None:
+    """整理目前行情：最低價（含航司/轉次）、中位數、樣本數。"""
+    if not offers:
+        return None
+    cheapest = min(offers, key=lambda o: o.price)
+    prices = [o.price for o in offers]
+    return {
+        "low": cheapest.price,
+        "median": float(median(prices)),
+        "count": len(prices),
+        "carrier": cheapest.carrier,
+        "stops": cheapest.stops,
+        "currency": cheapest.currency,
+    }
+
+
+def suggest_budgets(low: float) -> list[tuple[str, float]]:
+    """依目前最低價給三檔建議預算（四捨五入到百位）。"""
+    out = []
+    for pct in (5, 10, 15):
+        value = round(low * (1 - pct / 100) / 100) * 100
+        if value > 0:
+            out.append((f"便宜{pct}%（{value:.0f}）", float(value)))
+    return out
+
+
+def summarize_draft(draft: Draft) -> list[str]:
+    """草稿的人類可讀摘要（給確認卡片用）。"""
+    trip = f"{draft.depart_date} ↔ {draft.return_date}" if draft.return_date \
+        else f"{draft.depart_date}（單程）"
+    lines = [f"✈️ {draft.origin} → {draft.destination}　{trip}"]
+    if draft.vias:
+        lines.append(f"🔁 轉機點：{'、'.join(draft.vias)}")
+    tf = draft.time_filters
+    tparts = []
+    if tf.get("out_after"):
+        tparts.append(f"去程 {tf['out_after']} 後")
+    if tf.get("out_before"):
+        tparts.append(f"去程 {tf['out_before']} 前")
+    if tf.get("ret_after"):
+        tparts.append(f"回程 {tf['ret_after']} 後")
+    if tf.get("ret_before"):
+        tparts.append(f"回程 {tf['ret_before']} 前")
+    if tparts:
+        lines.append("🕒 " + "、".join(tparts))
+    lines.append(
+        f"💰 預算：{draft.threshold:.0f}" if draft.threshold
+        else "💰 預算：未設（僅創新低/好價時通知）"
+    )
+    return lines
+
+
+def validate_core(origin_raw: str, dest_raw: str, depart_raw: str,
+                  return_raw: str, budget_raw: str,
+                  today: date | None = None) -> tuple[Draft | None, list[str]]:
+    """驗證表單五欄。回傳 (Draft, 錯誤清單)；有錯誤時 Draft 為 None。"""
+    errors: list[str] = []
+    origin = resolve_place(origin_raw)
+    dest = resolve_place(dest_raw)
+    depart = parse_date_input(depart_raw, today)
+    ret = parse_date_input(return_raw, today) if (return_raw or "").strip() else None
+    budget = parse_budget_input(budget_raw)
+
+    if not origin:
+        errors.append(f"看不懂出發地「{origin_raw}」（可填 TPE 或 台北）")
+    if not dest:
+        errors.append(f"看不懂目的地「{dest_raw}」")
+    if not depart:
+        errors.append(f"看不懂去程日期「{depart_raw}」（可填 9/26 或 2026-09-26）")
+    if (return_raw or "").strip() and not ret:
+        errors.append(f"看不懂回程日期「{return_raw}」")
+    if ret and depart and ret < depart:
+        errors.append("回程日期比去程還早")
+    if (budget_raw or "").strip() and budget is None:
+        errors.append(f"看不懂預算「{budget_raw}」（填數字即可）")
+
+    if errors:
+        return None, errors
+    return Draft(origin=origin, destination=dest, depart_date=depart,
+                 return_date=ret, threshold=budget), []
