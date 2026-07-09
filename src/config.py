@@ -20,7 +20,8 @@ def _get(key: str, default: str | None = None, required: bool = False) -> str:
 
 @dataclass(frozen=True)
 class Config:
-    telegram_token: str
+    telegram_token: str   # 用 Telegram 才需要
+    discord_token: str    # 用 Discord 才需要
     # 機票資料來源：至少要設定其中一個
     travelpayouts_token: str
     serpapi_key: str
@@ -35,7 +36,8 @@ class Config:
     @classmethod
     def load(cls) -> "Config":
         config = cls(
-            telegram_token=_get("TELEGRAM_BOT_TOKEN", required=True),
+            telegram_token=_get("TELEGRAM_BOT_TOKEN"),
+            discord_token=_get("DISCORD_BOT_TOKEN"),
             travelpayouts_token=_get("TRAVELPAYOUTS_TOKEN"),
             serpapi_key=_get("SERPAPI_KEY"),
             check_interval_minutes=int(_get("CHECK_INTERVAL_MINUTES", "60")),

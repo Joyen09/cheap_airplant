@@ -1,7 +1,9 @@
 # ✈️ 便宜機票通知機器人 (cheap_airplant)
 
-透過 Telegram 監控機票價格：你傳一段訊息說「從哪到哪、要不要轉乘、什麼日期、預算多少」，
-機器人就會定時幫你查價，**便宜了或創新低就主動推播通知**給你。
+透過 **Telegram 或 Discord** 監控機票價格：你傳一段訊息說「從哪到哪、要不要轉乘、
+什麼日期、預算多少」，機器人就會定時幫你查價，**便宜了或創新低就主動推播通知**給你。
+兩個平台功能完全一樣（共用同一套核心邏輯）：Telegram 跑 `main.py`、Discord 跑
+`main_discord.py`，設定見 **[deploy/DISCORD.md](deploy/DISCORD.md)**。
 
 機票資料來源可插拔：預設用免費的 **Travelpayouts**；若同時設定 **SerpApi（Google Flights）**，
 平常走較準的 SerpApi、額度用盡時自動退回免費的 Travelpayouts。
