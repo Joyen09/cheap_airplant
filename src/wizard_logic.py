@@ -91,10 +91,16 @@ TIME_PRESETS: dict[str, tuple[str, str | None, str | None]] = _build_time_preset
 def apply_time_preset(draft: Draft, leg: str, preset_key: str) -> None:
     """leg: 'out' 或 'ret'。套用/清除該航段的時段限制。"""
     _, direction, hhmm = TIME_PRESETS[preset_key]
+    set_time_filter(draft, leg, direction, int(hhmm.split(":")[0]) if hhmm else 0)
+
+
+def set_time_filter(draft: Draft, leg: str,
+                    direction: str | None, hour: int) -> None:
+    """直接設定某航段的時段限制（轉盤按鈕用）。direction=None 表示清除。"""
     draft.time_filters.pop(f"{leg}_before", None)
     draft.time_filters.pop(f"{leg}_after", None)
     if direction:
-        draft.time_filters[f"{leg}_{direction}"] = hhmm
+        draft.time_filters[f"{leg}_{direction}"] = f"{hour % 24:02d}:00"
 
 
 # ── 行情摘要與預算建議 ────────────────────────────────────────────────────────

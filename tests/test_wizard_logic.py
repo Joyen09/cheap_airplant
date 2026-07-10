@@ -76,6 +76,19 @@ def test_time_presets_apply_and_clear():
     assert d.time_filters == {"ret_after": "16:00"}
 
 
+def test_set_time_filter_direct():
+    from src.wizard_logic import set_time_filter
+    d = Draft()
+    set_time_filter(d, "out", "after", 6)
+    assert d.time_filters == {"out_after": "06:00"}
+    set_time_filter(d, "out", "before", 18)   # 換方向會清掉舊的
+    assert d.time_filters == {"out_before": "18:00"}
+    set_time_filter(d, "ret", "after", 27)    # 超過 24 要繞回（27→03）
+    assert d.time_filters["ret_after"] == "03:00"
+    set_time_filter(d, "out", None, 0)        # 清除
+    assert d.time_filters == {"ret_after": "03:00"}
+
+
 def test_all_presets_valid_and_within_discord_limit():
     from src.wizard_logic import TIME_PRESETS
     assert len(TIME_PRESETS) <= 25          # Discord 單一選單上限

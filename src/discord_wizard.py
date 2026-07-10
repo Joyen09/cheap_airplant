@@ -15,12 +15,11 @@ import discord
 from . import messages
 from .flight_offer import FlightError
 from .wizard_logic import (
-    TIME_PRESETS,
     Draft,
-    apply_time_preset,
     parse_budget_input,
     parse_vias_input,
     price_context,
+    set_time_filter,
     suggest_budgets,
     summarize_draft,
     validate_core,
@@ -78,20 +77,52 @@ def _render_embed(draft: Draft, ctx: dict | None, currency: str) -> discord.Embe
     return embed
 
 
-class _TimeSelect(discord.ui.Select):
-    def __init__(self, wizard: "SummaryView", leg: str, row: int):
+class _TimeState:
+    """一個航段的時間轉盤狀態。"""
+
+    def __init__(self, default_hour: int):
+        self.direction: str | None = None  # None=不限 / 'after' / 'before'
+        self.hour = default_hour
+
+    def label(self, leg_name: str) -> str:
+        if self.direction is None:
+            return f"🕒 {leg_name}：不限"
+        word = "後" if self.direction == "after" else "前"
+        return f"🕒 {leg_name}：{self.hour:02d}:00 {word}"
+
+
+class _TimeButton(discord.ui.Button):
+    """時間轉盤按鈕：−3/−1/＋1/＋3 轉小時，中間鍵切換 不限→後→前。"""
+
+    def __init__(self, wizard: "SummaryView", leg: str, row: int,
+                 delta: int = 0, is_middle: bool = False):
         self._wizard = wizard
         self._leg = leg
-        label = "去程時間" if leg == "out" else "回程時間"
-        options = [
-            discord.SelectOption(label=f"{label}：{text}", value=key)
-            for key, (text, _, _) in TIME_PRESETS.items()
-        ]
-        super().__init__(placeholder=f"🕒 {label}（可不選）", options=options, row=row)
+        self._delta = delta
+        self._is_middle = is_middle
+        leg_name = "去程" if leg == "out" else "回程"
+        if is_middle:
+            label = wizard.time_state[leg].label(leg_name)
+            style = discord.ButtonStyle.primary
+        else:
+            label = f"{'−' if delta < 0 else '＋'}{abs(delta)}"
+            style = discord.ButtonStyle.secondary
+        super().__init__(label=label, style=style, row=row)
 
     async def callback(self, interaction: discord.Interaction):
-        apply_time_preset(self._wizard.draft, self._leg, self.values[0])
-        await self._wizard.refresh(interaction)
+        wizard = self._wizard
+        state = wizard.time_state[self._leg]
+        if self._is_middle:
+            # 循環：不限 → 以後 → 以前 → 不限
+            state.direction = {None: "after", "after": "before",
+                               "before": None}[state.direction]
+        else:
+            if state.direction is None:  # 直接轉小時就自動進入「以後」模式
+                state.direction = "after"
+            state.hour = (state.hour + self._delta) % 24
+        set_time_filter(wizard.draft, self._leg, state.direction, state.hour)
+        wizard.sync_time_labels()
+        await wizard.refresh(interaction)
 
 
 class _ViaModal(discord.ui.Modal, title="指定轉機點"):
@@ -158,9 +189,23 @@ class SummaryView(discord.ui.View):
         self.ctx = ctx
         self.message: discord.Message | None = None
         self._finished = False  # 防連點：建立/取消只允許執行一次
-        self.add_item(_TimeSelect(self, "out", row=0))
-        if draft.return_date:
-            self.add_item(_TimeSelect(self, "ret", row=1))
+        # 時間轉盤：每個航段一列 [−3][−1][中間鍵][＋1][＋3]
+        self.time_state = {"out": _TimeState(9), "ret": _TimeState(15)}
+        self._middles: dict[str, _TimeButton] = {}
+        legs = ["out"] + (["ret"] if draft.return_date else [])
+        for row, leg in enumerate(legs):
+            for delta in (-3, -1):
+                self.add_item(_TimeButton(self, leg, row, delta=delta))
+            middle = _TimeButton(self, leg, row, is_middle=True)
+            self._middles[leg] = middle
+            self.add_item(middle)
+            for delta in (1, 3):
+                self.add_item(_TimeButton(self, leg, row, delta=delta))
+
+    def sync_time_labels(self) -> None:
+        for leg, btn in self._middles.items():
+            btn.label = self.time_state[leg].label(
+                "去程" if leg == "out" else "回程")
 
     async def refresh(self, interaction: discord.Interaction | None):
         embed = _render_embed(self.draft, self.ctx, self.bot.config.currency)
