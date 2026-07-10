@@ -28,6 +28,12 @@ class Watch:
     last_alert_price: float | None = None
     # 去程/回程時間限制的 JSON，例如 {"out_before":"18:00","ret_before":"12:00"}
     time_filters: str | None = None
+    # 「這位使用者」的第幾個監控（顯示與指令都用這個；id 只當內部主鍵）
+    user_seq: int = 0
+
+    @property
+    def display_no(self) -> int:
+        return self.user_seq or self.id
 
 
 _SCHEMA = """
@@ -47,7 +53,8 @@ CREATE TABLE IF NOT EXISTS watches (
     price_count  INTEGER NOT NULL DEFAULT 0,
     price_sum    REAL    NOT NULL DEFAULT 0,
     last_alert_price REAL,
-    time_filters TEXT
+    time_filters TEXT,
+    user_seq     INTEGER
 );
 CREATE TABLE IF NOT EXISTS price_history (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,6 +71,7 @@ _MIGRATIONS = [
     "ALTER TABLE watches ADD COLUMN price_sum REAL NOT NULL DEFAULT 0",
     "ALTER TABLE watches ADD COLUMN last_alert_price REAL",
     "ALTER TABLE watches ADD COLUMN time_filters TEXT",
+    "ALTER TABLE watches ADD COLUMN user_seq INTEGER",
 ]
 
 
@@ -80,7 +88,28 @@ class Storage:
                 self._conn.execute(sql)
             except sqlite3.OperationalError:
                 pass  # 欄位已存在
+        self._backfill_user_seq()
         self._conn.commit()
+
+    def _backfill_user_seq(self) -> None:
+        """舊資料補上每人獨立的編號（依建立順序 1..n）。"""
+        rows = self._conn.execute(
+            "SELECT id, chat_id FROM watches WHERE user_seq IS NULL ORDER BY id"
+        ).fetchall()
+        counters: dict[int, int] = {}
+        for row in rows:
+            chat = row["chat_id"]
+            if chat not in counters:
+                cur = self._conn.execute(
+                    "SELECT COALESCE(MAX(user_seq), 0) FROM watches WHERE chat_id = ?",
+                    (chat,),
+                ).fetchone()
+                counters[chat] = cur[0]
+            counters[chat] += 1
+            self._conn.execute(
+                "UPDATE watches SET user_seq = ? WHERE id = ?",
+                (counters[chat], row["id"]),
+            )
 
     def close(self) -> None:
         self._conn.close()
@@ -102,13 +131,19 @@ class Storage:
         time_filters: str | None = None,
     ) -> Watch:
         now = datetime.now(timezone.utc).isoformat()
+        # 每人自己的編號：含已刪除的取最大值+1，編號不重複使用
+        seq = self._conn.execute(
+            "SELECT COALESCE(MAX(user_seq), 0) + 1 FROM watches WHERE chat_id = ?",
+            (chat_id,),
+        ).fetchone()[0]
         cur = self._conn.execute(
             """INSERT INTO watches
                (chat_id, origin, destination, via, depart_date, return_date,
-                threshold, currency, lowest_seen, active, created_at, time_filters)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?)""",
+                threshold, currency, lowest_seen, active, created_at, time_filters,
+                user_seq)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?, ?)""",
             (chat_id, origin, destination, via, depart_date, return_date,
-             threshold, currency, now, time_filters),
+             threshold, currency, now, time_filters, seq),
         )
         self._conn.commit()
         return self.get_watch(cur.lastrowid)  # type: ignore[arg-type]
@@ -174,3 +209,15 @@ class Storage:
         )
         self._conn.commit()
         return cur.rowcount > 0
+
+    def find_by_seq(self, chat_id: int, seq: int) -> Watch | None:
+        """用使用者自己的編號找（僅限使用中的監控）。"""
+        row = self._conn.execute(
+            "SELECT * FROM watches WHERE chat_id = ? AND user_seq = ? AND active = 1",
+            (chat_id, seq),
+        ).fetchone()
+        return self._row_to_watch(row) if row else None
+
+    def deactivate_seq(self, chat_id: int, seq: int) -> bool:
+        w = self.find_by_seq(chat_id, seq)
+        return self.deactivate(w.id, chat_id) if w else False

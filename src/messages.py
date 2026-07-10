@@ -109,7 +109,7 @@ def watch_created(w: Watch) -> str:
         "✅ <b>已建立監控</b>\n"
         f"航線：{_route_label(w)}\n"
         f"{budget}\n"
-        f"編號 #{w.id}　我會定時幫你查價，便宜了就通知你 👀\n"
+        f"編號 #{w.display_no}　我會定時幫你查價，便宜了就通知你 👀\n"
         f'🔗 <a href="{_google_flights_url(w)}">先看現在的價格／訂票</a>'
     )
 
@@ -125,7 +125,7 @@ def list_watches(watches: list[Watch]) -> str:
     for w in watches:
         budget = f"≤{w.threshold:.0f}" if w.threshold else "創新低"
         low = f"，最低看過 {w.lowest_seen:.0f}" if w.lowest_seen else ""
-        lines.append(f"#{w.id}　{_route_label(w)}（{budget}{low}）")
+        lines.append(f"#{w.display_no}　{_route_label(w)}（{budget}{low}）")
     return "\n".join(lines)
 
 
@@ -140,7 +140,7 @@ def deal_alert(result: CheckResult) -> str:
         f"目前最低：<b>{o.price:.0f} {o.currency}</b>"
         f"（{o.carrier}，{'直飛' if o.stops == 0 else f'轉{o.stops}次'}）\n"
         f"原因：{result.reason}\n"
-        f"監控 #{w.id}\n"
+        f"監控 #{w.display_no}\n"
         f"{_booking_section(w, o)}"
     )
 
@@ -162,6 +162,6 @@ def daily_digest(date_str: str, watches: list[Watch], prices: dict) -> str:
             now = f"目前查無報價（看過最低 {low}）"
             extra = ""
         budget = f"，你的預算 {w.threshold:.0f}" if w.threshold else ""
-        lines.append(f"#{w.id}　{_route_label(w)}\n　└ {now}{extra}{budget}")
+        lines.append(f"#{w.display_no}　{_route_label(w)}\n　└ {now}{extra}{budget}")
     lines.append("\n要立刻重查可按 /check，管理用 /list、/del")
     return "\n".join(lines)

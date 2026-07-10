@@ -35,6 +35,15 @@ class JsonStorage:
         for w in data.get("watches", []):
             self._watches[w["id"]] = Watch(**{k: v for k, v in w.items() if k in valid})
         self._history = {int(k): v for k, v in data.get("history", {}).items()}
+        # 舊資料補上每人獨立的編號（依建立順序）
+        counters: dict[int, int] = {}
+        for w in sorted(self._watches.values(), key=lambda x: x.id):
+            if w.user_seq:
+                counters[w.chat_id] = max(counters.get(w.chat_id, 0), w.user_seq)
+        for w in sorted(self._watches.values(), key=lambda x: x.id):
+            if not w.user_seq:
+                counters[w.chat_id] = counters.get(w.chat_id, 0) + 1
+                w.user_seq = counters[w.chat_id]
 
     def save(self) -> None:
         directory = os.path.dirname(self.path)
@@ -53,6 +62,8 @@ class JsonStorage:
     # ── CRUD ─────────────────────────────────────────────────────────────
     def add_watch(self, chat_id, origin, destination, via, depart_date,
                   return_date, threshold, currency, time_filters=None) -> Watch:
+        seq = max((w.user_seq for w in self._watches.values()
+                   if w.chat_id == chat_id), default=0) + 1
         watch = Watch(
             id=self.next_id,
             chat_id=chat_id,
@@ -67,6 +78,7 @@ class JsonStorage:
             active=1,
             created_at=datetime.now(timezone.utc).isoformat(),
             time_filters=time_filters,
+            user_seq=seq,
         )
         self._watches[watch.id] = watch
         self.next_id += 1
@@ -108,3 +120,13 @@ class JsonStorage:
             w.active = 0
             return True
         return False
+
+    def find_by_seq(self, chat_id: int, seq: int):
+        for w in self._watches.values():
+            if w.chat_id == chat_id and w.user_seq == seq and w.active:
+                return w
+        return None
+
+    def deactivate_seq(self, chat_id: int, seq: int) -> bool:
+        w = self.find_by_seq(chat_id, seq)
+        return self.deactivate(w.id, chat_id) if w else False

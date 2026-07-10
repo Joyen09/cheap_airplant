@@ -39,7 +39,7 @@ def _handle_command(text, chat_id, store, tg) -> bool:
         if not arg.isdigit():
             tg.send_message(chat_id, "用法：/del <編號>，例如 /del 3", html=False)
         else:
-            ok = store.deactivate(int(arg), chat_id)
+            ok = store.deactivate_seq(chat_id, int(arg))
             tg.send_message(
                 chat_id,
                 f"🗑️ 已刪除監控 #{arg}" if ok else f"找不到屬於你的監控 #{arg}",
@@ -122,7 +122,7 @@ def run_price_checks(store, tg, provider, config, new_watch_ids, force_chats) ->
             if force:
                 tg.send_message(
                     watch.chat_id,
-                    f"⚠️ 監控 #{watch.id} 查價失敗，下次排程會再試。",
+                    f"⚠️ 監控 #{watch.display_no} 查價失敗，下次排程會再試。",
                     html=False,
                 )
             continue
@@ -140,13 +140,13 @@ def run_price_checks(store, tg, provider, config, new_watch_ids, force_chats) ->
                 o = result.cheapest
                 tg.send_message(
                     watch.chat_id,
-                    f"監控 #{watch.id} 目前最低 {o.price:.0f} {o.currency}"
+                    f"監控 #{watch.display_no} 目前最低 {o.price:.0f} {o.currency}"
                     f"（{o.carrier}）。{result.reason}。",
                     html=False,
                 )
             else:
                 tg.send_message(
-                    watch.chat_id, f"監控 #{watch.id}：{result.reason}。", html=False
+                    watch.chat_id, f"監控 #{watch.display_no}：{result.reason}。", html=False
                 )
     return results
 

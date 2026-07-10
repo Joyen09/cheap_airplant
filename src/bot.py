@@ -44,7 +44,7 @@ class FlightBot:
             await update.message.reply_text("用法：/del <編號>，例如 /del 3")
             return
         watch_id = int(ctx.args[0].lstrip("#"))
-        ok = self.storage.deactivate(watch_id, update.effective_chat.id)
+        ok = self.storage.deactivate_seq(update.effective_chat.id, watch_id)
         await update.message.reply_text(
             f"🗑️ 已刪除監控 #{watch_id}" if ok else f"找不到屬於你的監控 #{watch_id}"
         )
@@ -60,7 +60,7 @@ class FlightBot:
         # /chart 3 指定某個；不給就畫全部
         if ctx.args and ctx.args[0].lstrip("#").isdigit():
             wid = int(ctx.args[0].lstrip("#"))
-            watches = [w for w in watches if w.id == wid]
+            watches = [w for w in watches if w.display_no == wid]
             if not watches:
                 await update.message.reply_text(f"找不到屬於你的監控 #{wid}")
                 return
@@ -81,18 +81,18 @@ class FlightBot:
             history = self.storage.get_history(w.id)
             if len(history) < 2:
                 await update.message.reply_text(
-                    f"監控 #{w.id} 已記錄一筆現價 👍 走勢圖至少要 2 筆，"
+                    f"監控 #{w.display_no} 已記錄一筆現價 👍 走勢圖至少要 2 筆，"
                     f"再按一次 /chart（或 /check）就能看圖了。"
                 )
                 continue
             baseline = w.price_sum / w.price_count if w.price_count else None
             png = render_price_chart(
-                title=f"#{w.id} {w.origin}-{w.destination} {w.depart_date}",
+                title=f"#{w.display_no} {w.origin}-{w.destination} {w.depart_date}",
                 points=history, currency=w.currency,
                 threshold=w.threshold, baseline=baseline,
             )
             await update.message.reply_photo(
-                png, caption=f"#{w.id} {w.origin}→{w.destination} 價格走勢"
+                png, caption=f"#{w.display_no} {w.origin}→{w.destination} 價格走勢"
             )
 
     async def cmd_check(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -146,7 +146,7 @@ class FlightBot:
             logger.warning("查價失敗 watch=%s：%s", watch.id, exc)
             if force_report:
                 await ctx.bot.send_message(
-                    watch.chat_id, f"⚠️ 監控 #{watch.id} 查價失敗，稍後會再試。"
+                    watch.chat_id, f"⚠️ 監控 #{watch.display_no} 查價失敗，稍後會再試。"
                 )
             return None
 
@@ -165,12 +165,12 @@ class FlightBot:
                 o = result.cheapest
                 await ctx.bot.send_message(
                     watch.chat_id,
-                    f"監控 #{watch.id} 目前最低 {o.price:.0f} {o.currency}"
+                    f"監控 #{watch.display_no} 目前最低 {o.price:.0f} {o.currency}"
                     f"（{o.carrier}）。{result.reason}。",
                 )
             else:
                 await ctx.bot.send_message(
-                    watch.chat_id, f"監控 #{watch.id}：{result.reason}。"
+                    watch.chat_id, f"監控 #{watch.display_no}：{result.reason}。"
                 )
         return result
 

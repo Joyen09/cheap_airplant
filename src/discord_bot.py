@@ -123,7 +123,7 @@ class FlightDiscordBot:
         if not arg.isdigit():
             await msg.channel.send("用法：del <編號>，例如 del 3")
             return
-        ok = self.storage.deactivate(int(arg), msg.channel.id)
+        ok = self.storage.deactivate_seq(msg.channel.id, int(arg))
         await msg.channel.send(
             f"🗑️ 已刪除監控 #{arg}" if ok else f"找不到屬於你的監控 #{arg}")
 
@@ -145,7 +145,7 @@ class FlightDiscordBot:
             return
         if arg and arg.lstrip("#").isdigit():
             wid = int(arg.lstrip("#"))
-            watches = [w for w in watches if w.id == wid]
+            watches = [w for w in watches if w.display_no == wid]
             if not watches:
                 await msg.channel.send(f"找不到屬於你的監控 #{wid}")
                 return
@@ -162,16 +162,16 @@ class FlightDiscordBot:
             history = self.storage.get_history(w.id)
             if len(history) < 2:
                 await msg.channel.send(
-                    f"監控 #{w.id} 已記錄一筆現價 👍 走勢圖至少要 2 筆，"
+                    f"監控 #{w.display_no} 已記錄一筆現價 👍 走勢圖至少要 2 筆，"
                     f"再按一次 chart（或 check）就能看圖了。")
                 continue
             baseline = w.price_sum / w.price_count if w.price_count else None
             png = render_price_chart(
-                title=f"#{w.id} {w.origin}-{w.destination} {w.depart_date}",
+                title=f"#{w.display_no} {w.origin}-{w.destination} {w.depart_date}",
                 points=history, currency=w.currency,
                 threshold=w.threshold, baseline=baseline)
             await msg.channel.send(
-                file=discord.File(io.BytesIO(png), filename=f"chart_{w.id}.png"))
+                file=discord.File(io.BytesIO(png), filename=f"chart_{w.display_no}.png"))
 
     async def _cmd_new_watch(self, msg, content) -> None:
         parsed = parse_message(content)
@@ -203,7 +203,7 @@ class FlightDiscordBot:
             logger.warning("查價失敗 watch=%s：%s", watch.id, exc)
             if force:
                 await self._send(watch.chat_id,
-                                  f"⚠️ 監控 #{watch.id} 查價失敗，稍後會再試。")
+                                  f"⚠️ 監控 #{watch.display_no} 查價失敗，稍後會再試。")
             return None
 
         if res.cheapest is not None:
@@ -217,10 +217,10 @@ class FlightDiscordBot:
                 o = res.cheapest
                 await self._send(
                     watch.chat_id,
-                    f"監控 #{watch.id} 目前最低 {o.price:.0f} {o.currency}"
+                    f"監控 #{watch.display_no} 目前最低 {o.price:.0f} {o.currency}"
                     f"（{o.carrier}）。{res.reason}。")
             else:
-                await self._send(watch.chat_id, f"監控 #{watch.id}：{res.reason}。")
+                await self._send(watch.chat_id, f"監控 #{watch.display_no}：{res.reason}。")
         return res
 
     async def _do_scheduled(self) -> None:
