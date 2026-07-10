@@ -89,6 +89,21 @@ def test_set_time_filter_direct():
     assert d.time_filters == {"ret_after": "15:00"}
 
 
+def test_parse_hhmm():
+    from src.wizard_logic import parse_hhmm
+    assert parse_hhmm("9") == "09:00"
+    assert parse_hhmm("09:00") == "09:00"
+    assert parse_hhmm("0900") == "09:00"
+    assert parse_hhmm("18:30") == "18:30"
+    assert parse_hhmm("930") == "09:30"
+    assert parse_hhmm("1830") == "18:30"
+    assert parse_hhmm("23:59") == "23:59"
+    assert parse_hhmm("24:00") is None    # 超出範圍
+    assert parse_hhmm("9:70") is None
+    assert parse_hhmm("abc") is None
+    assert parse_hhmm("") is None
+
+
 def test_parse_time_input_formats():
     from src.wizard_logic import parse_time_input
     import pytest

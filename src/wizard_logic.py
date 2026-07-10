@@ -104,6 +104,17 @@ def set_time_filter(draft: Draft, leg: str,
         draft.time_filters[f"{leg}_{direction}"] = hhmm
 
 
+def parse_hhmm(text: str) -> str | None:
+    """只解析時間數字 → 'HH:MM'。接受 9、09:00、0900、18:30、930。看不懂回 None。"""
+    m = re.fullmatch(r"\s*(\d{1,2})(?::?(\d{2}))?\s*", text or "")
+    if not m:
+        return None
+    hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if 0 <= hour <= 23 and 0 <= minute <= 59:
+        return f"{hour:02d}:{minute:02d}"
+    return None
+
+
 def parse_time_input(text: str) -> tuple[str, str] | None:
     """把使用者打的時間條件轉成 (方向, HH:MM)。
 

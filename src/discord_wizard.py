@@ -17,7 +17,7 @@ from .flight_offer import FlightError
 from .wizard_logic import (
     Draft,
     parse_budget_input,
-    parse_time_input,
+    parse_hhmm,
     parse_vias_input,
     price_context,
     set_time_filter,
@@ -74,61 +74,73 @@ def _render_embed(draft: Draft, ctx: dict | None, currency: str) -> discord.Embe
             value="暫時查不到報價（仍可建立監控，之後查到會通知）",
             inline=False,
         )
-    embed.set_footer(text="用下面的按鈕調整時間/轉機/預算，完成後按 ✅ 建立")
+    embed.set_footer(
+        text="上排藍鈕切換去/回程時間的 不限/以後/以前；🕒設定時間 改幾點，"
+             "完成後按 ✅ 建立")
     return embed
 
 
-class _TimeModal(discord.ui.Modal, title="設定時間（打字最快）"):
-    """一次表單設定去程/回程時間：09:00後、18:00前、6點前；留空＝不限。"""
+class _DirButton(discord.ui.Button):
+    """方向鈕：按一下循環 不限 → 以後 → 以前，標籤即時顯示狀態。"""
+
+    def __init__(self, wizard: "SummaryView", leg: str):
+        self._wizard = wizard
+        self._leg = leg
+        super().__init__(style=discord.ButtonStyle.primary, row=0,
+                         label=wizard.dir_label(leg))
+
+    async def callback(self, interaction: discord.Interaction):
+        st = self._wizard.time[self._leg]
+        st[0] = {None: "after", "after": "before", "before": None}[st[0]]
+        self._wizard.apply_time()
+        self._wizard.sync_dir_labels()
+        await self._wizard.refresh(interaction)
+
+
+class _TimeModal(discord.ui.Modal, title="設定時間（幾點）"):
+    """只填「幾點」數字；前/後用卡片上的方向鈕切換。留空＝不變。"""
 
     def __init__(self, wizard: "SummaryView"):
         super().__init__()
         self._wizard = wizard
-        tf = wizard.draft.time_filters
+        # 只有目前是啟用狀態才預填數字，避免「不限」被開一下就變成有時間
+        out_default = wizard.time["out"][1] if wizard.time["out"][0] else ""
         self._out = discord.ui.TextInput(
-            label="去程時間（例：09:00後、18:00前；留空＝不限）",
-            required=False, max_length=20,
-            default=_current_time_text(tf, "out"),
+            label="去程幾點（例：9 或 09:00、18:30；留空不變）",
+            required=False, max_length=6, default=out_default,
         )
         self.add_item(self._out)
         self._ret = None
-        if wizard.draft.return_date:
+        if "ret" in wizard.time:
+            ret_default = wizard.time["ret"][1] if wizard.time["ret"][0] else ""
             self._ret = discord.ui.TextInput(
-                label="回程時間（例：15:00後；留空＝不限）",
-                required=False, max_length=20,
-                default=_current_time_text(tf, "ret"),
+                label="回程幾點（留空不變）",
+                required=False, max_length=6, default=ret_default,
             )
             self.add_item(self._ret)
 
     async def on_submit(self, interaction: discord.Interaction):
         errors = []
-        parsed = {}
         for leg, item in (("out", self._out), ("ret", self._ret)):
             if item is None:
                 continue
-            try:
-                parsed[leg] = parse_time_input(str(item.value))
-            except ValueError as exc:
-                errors.append(str(exc))
-        if errors:  # 有看不懂的就整份不套用，保留原設定
+            raw = str(item.value).strip()
+            if not raw:
+                continue
+            hhmm = parse_hhmm(raw)
+            if hhmm is None:
+                errors.append(f"看不懂「{raw}」（填數字，例：9 或 18:30）")
+                continue
+            self._wizard.time[leg][1] = hhmm
+            if self._wizard.time[leg][0] is None:  # 有填時間就自動啟用「以後」
+                self._wizard.time[leg][0] = "after"
+        if errors:
             await interaction.response.send_message(
-                "🤔 " + "\n".join(errors) + "\n（原本的時間設定沒有變動）")
+                "🤔 " + "\n".join(errors) + "\n（其餘設定沒有變動）")
             return
-        for leg, result in parsed.items():
-            if result is None:
-                set_time_filter(self._wizard.draft, leg, None, None)
-            else:
-                set_time_filter(self._wizard.draft, leg, result[0], result[1])
+        self._wizard.apply_time()
+        self._wizard.sync_dir_labels()
         await self._wizard.refresh(interaction)
-
-
-def _current_time_text(tf: dict, leg: str) -> str:
-    """把現有設定轉回可編輯的文字（預填表單用）。"""
-    if tf.get(f"{leg}_after"):
-        return f"{tf[f'{leg}_after']}後"
-    if tf.get(f"{leg}_before"):
-        return f"{tf[f'{leg}_before']}前"
-    return ""
 
 
 class _ViaModal(discord.ui.Modal, title="指定轉機點"):
@@ -195,6 +207,37 @@ class SummaryView(discord.ui.View):
         self.ctx = ctx
         self.message: discord.Message | None = None
         self._finished = False  # 防連點：建立/取消只允許執行一次
+        # 時間狀態：每段 [方向(None/after/before), HH:MM]
+        self.time: dict[str, list] = {}
+        legs = ["out"] + (["ret"] if draft.return_date else [])
+        for leg in legs:
+            tf = draft.time_filters
+            if tf.get(f"{leg}_after"):
+                self.time[leg] = ["after", tf[f"{leg}_after"]]
+            elif tf.get(f"{leg}_before"):
+                self.time[leg] = ["before", tf[f"{leg}_before"]]
+            else:
+                self.time[leg] = [None, "09:00" if leg == "out" else "18:00"]
+        self._dir_btns: dict[str, _DirButton] = {}
+        for leg in legs:
+            btn = _DirButton(self, leg)
+            self._dir_btns[leg] = btn
+            self.add_item(btn)
+
+    def dir_label(self, leg: str) -> str:
+        name = "去程" if leg == "out" else "回程"
+        direction, hhmm = self.time[leg]
+        if direction is None:
+            return f"🕒 {name}：不限"
+        return f"🕒 {name}：{hhmm} {'後' if direction == 'after' else '前'}"
+
+    def sync_dir_labels(self) -> None:
+        for leg, btn in self._dir_btns.items():
+            btn.label = self.dir_label(leg)
+
+    def apply_time(self) -> None:
+        for leg, (direction, hhmm) in self.time.items():
+            set_time_filter(self.draft, leg, direction, hhmm)
 
     async def refresh(self, interaction: discord.Interaction | None):
         embed = _render_embed(self.draft, self.ctx, self.bot.config.currency)
@@ -216,19 +259,19 @@ class SummaryView(discord.ui.View):
             except discord.HTTPException:
                 pass
 
-    @discord.ui.button(label="🕒 時間", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🕒 設定時間", style=discord.ButtonStyle.secondary, row=1)
     async def time_btn(self, interaction: discord.Interaction, _):
         await interaction.response.send_modal(_TimeModal(self))
 
-    @discord.ui.button(label="✈️ 轉機點", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="✈️ 轉機點", style=discord.ButtonStyle.secondary, row=1)
     async def via_btn(self, interaction: discord.Interaction, _):
         await interaction.response.send_modal(_ViaModal(self))
 
-    @discord.ui.button(label="💰 預算", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="💰 預算", style=discord.ButtonStyle.secondary, row=1)
     async def budget_btn(self, interaction: discord.Interaction, _):
         await interaction.response.send_modal(_BudgetModal(self))
 
-    @discord.ui.button(label="✅ 建立", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="✅ 建立", style=discord.ButtonStyle.success, row=2)
     async def create_btn(self, interaction: discord.Interaction, _):
         if self._finished:  # 防連點：第二次點擊直接吞掉
             await interaction.response.defer()
@@ -254,7 +297,7 @@ class SummaryView(discord.ui.View):
         await interaction.followup.send(_to_discord(messages.watch_created(watch)))
         self.stop()
 
-    @discord.ui.button(label="❌ 取消", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="❌ 取消", style=discord.ButtonStyle.danger, row=2)
     async def cancel_btn(self, interaction: discord.Interaction, _):
         if self._finished:
             await interaction.response.defer()
