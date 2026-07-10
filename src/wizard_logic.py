@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
@@ -91,16 +92,41 @@ TIME_PRESETS: dict[str, tuple[str, str | None, str | None]] = _build_time_preset
 def apply_time_preset(draft: Draft, leg: str, preset_key: str) -> None:
     """leg: 'out' 或 'ret'。套用/清除該航段的時段限制。"""
     _, direction, hhmm = TIME_PRESETS[preset_key]
-    set_time_filter(draft, leg, direction, int(hhmm.split(":")[0]) if hhmm else 0)
+    set_time_filter(draft, leg, direction, hhmm)
 
 
 def set_time_filter(draft: Draft, leg: str,
-                    direction: str | None, hour: int) -> None:
-    """直接設定某航段的時段限制（轉盤按鈕用）。direction=None 表示清除。"""
+                    direction: str | None, hhmm: str | None) -> None:
+    """直接設定某航段的時段限制。direction=None 表示清除。"""
     draft.time_filters.pop(f"{leg}_before", None)
     draft.time_filters.pop(f"{leg}_after", None)
-    if direction:
-        draft.time_filters[f"{leg}_{direction}"] = f"{hour % 24:02d}:00"
+    if direction and hhmm:
+        draft.time_filters[f"{leg}_{direction}"] = hhmm
+
+
+def parse_time_input(text: str) -> tuple[str, str] | None:
+    """把使用者打的時間條件轉成 (方向, HH:MM)。
+
+    接受：「09:00後」「9點後」「18:00 以前」「6前」「after 9」「before 18:30」。
+    空字串／「不限」回 None（= 清除限制）。看不懂就拋 ValueError。
+    """
+    t = (text or "").strip()
+    if not t or t in ("不限", "無", "无", "any", "-"):
+        return None
+    tl = t.lower()
+    if "前" in t or "before" in tl:
+        direction = "before"
+    elif "後" in t or "后" in t or "after" in tl:
+        direction = "after"
+    else:
+        raise ValueError(f"看不懂「{text}」：要寫 前 或 後（例：09:00後、18:00前）")
+    m = re.search(r"(\d{1,2})(?::(\d{2}))?", t)
+    if not m:
+        raise ValueError(f"看不懂「{text}」的時間（例：09:00後、6點前）")
+    hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError(f"「{text}」的時間超出範圍（小時 0-23、分鐘 0-59）")
+    return direction, f"{hour:02d}:{minute:02d}"
 
 
 # ── 行情摘要與預算建議 ────────────────────────────────────────────────────────

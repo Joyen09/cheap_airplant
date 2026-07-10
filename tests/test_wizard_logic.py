@@ -79,14 +79,34 @@ def test_time_presets_apply_and_clear():
 def test_set_time_filter_direct():
     from src.wizard_logic import set_time_filter
     d = Draft()
-    set_time_filter(d, "out", "after", 6)
+    set_time_filter(d, "out", "after", "06:00")
     assert d.time_filters == {"out_after": "06:00"}
-    set_time_filter(d, "out", "before", 18)   # 換方向會清掉舊的
-    assert d.time_filters == {"out_before": "18:00"}
-    set_time_filter(d, "ret", "after", 27)    # 超過 24 要繞回（27→03）
-    assert d.time_filters["ret_after"] == "03:00"
-    set_time_filter(d, "out", None, 0)        # 清除
-    assert d.time_filters == {"ret_after": "03:00"}
+    set_time_filter(d, "out", "before", "18:30")   # 換方向會清掉舊的、支援分鐘
+    assert d.time_filters == {"out_before": "18:30"}
+    set_time_filter(d, "ret", "after", "15:00")
+    assert d.time_filters["ret_after"] == "15:00"
+    set_time_filter(d, "out", None, None)          # 清除
+    assert d.time_filters == {"ret_after": "15:00"}
+
+
+def test_parse_time_input_formats():
+    from src.wizard_logic import parse_time_input
+    import pytest
+    assert parse_time_input("09:00後") == ("after", "09:00")
+    assert parse_time_input("9點後") == ("after", "09:00")
+    assert parse_time_input("18:00 以前") == ("before", "18:00")
+    assert parse_time_input("6前") == ("before", "06:00")
+    assert parse_time_input("after 9") == ("after", "09:00")
+    assert parse_time_input("before 18:30") == ("before", "18:30")
+    assert parse_time_input("06:30後") == ("after", "06:30")   # 支援分鐘
+    assert parse_time_input("") is None
+    assert parse_time_input("不限") is None
+    with pytest.raises(ValueError):
+        parse_time_input("早上")          # 沒有時間
+    with pytest.raises(ValueError):
+        parse_time_input("9:00")          # 沒寫前/後
+    with pytest.raises(ValueError):
+        parse_time_input("25:00後")       # 超出範圍
 
 
 def test_all_presets_valid_and_within_discord_limit():

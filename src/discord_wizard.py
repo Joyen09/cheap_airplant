@@ -17,6 +17,7 @@ from .flight_offer import FlightError
 from .wizard_logic import (
     Draft,
     parse_budget_input,
+    parse_time_input,
     parse_vias_input,
     price_context,
     set_time_filter,
@@ -73,56 +74,61 @@ def _render_embed(draft: Draft, ctx: dict | None, currency: str) -> discord.Embe
             value="暫時查不到報價（仍可建立監控，之後查到會通知）",
             inline=False,
         )
-    embed.set_footer(text="用下面的選單/按鈕調整條件，完成後按 ✅ 建立")
+    embed.set_footer(text="用下面的按鈕調整時間/轉機/預算，完成後按 ✅ 建立")
     return embed
 
 
-class _TimeState:
-    """一個航段的時間轉盤狀態。"""
+class _TimeModal(discord.ui.Modal, title="設定時間（打字最快）"):
+    """一次表單設定去程/回程時間：09:00後、18:00前、6點前；留空＝不限。"""
 
-    def __init__(self, default_hour: int):
-        self.direction: str | None = None  # None=不限 / 'after' / 'before'
-        self.hour = default_hour
-
-    def label(self, leg_name: str) -> str:
-        if self.direction is None:
-            return f"🕒 {leg_name}：不限"
-        word = "後" if self.direction == "after" else "前"
-        return f"🕒 {leg_name}：{self.hour:02d}:00 {word}"
-
-
-class _TimeButton(discord.ui.Button):
-    """時間轉盤按鈕：−3/−1/＋1/＋3 轉小時，中間鍵切換 不限→後→前。"""
-
-    def __init__(self, wizard: "SummaryView", leg: str, row: int,
-                 delta: int = 0, is_middle: bool = False):
+    def __init__(self, wizard: "SummaryView"):
+        super().__init__()
         self._wizard = wizard
-        self._leg = leg
-        self._delta = delta
-        self._is_middle = is_middle
-        leg_name = "去程" if leg == "out" else "回程"
-        if is_middle:
-            label = wizard.time_state[leg].label(leg_name)
-            style = discord.ButtonStyle.primary
-        else:
-            label = f"{'−' if delta < 0 else '＋'}{abs(delta)}"
-            style = discord.ButtonStyle.secondary
-        super().__init__(label=label, style=style, row=row)
+        tf = wizard.draft.time_filters
+        self._out = discord.ui.TextInput(
+            label="去程時間（例：09:00後、18:00前；留空＝不限）",
+            required=False, max_length=20,
+            default=_current_time_text(tf, "out"),
+        )
+        self.add_item(self._out)
+        self._ret = None
+        if wizard.draft.return_date:
+            self._ret = discord.ui.TextInput(
+                label="回程時間（例：15:00後；留空＝不限）",
+                required=False, max_length=20,
+                default=_current_time_text(tf, "ret"),
+            )
+            self.add_item(self._ret)
 
-    async def callback(self, interaction: discord.Interaction):
-        wizard = self._wizard
-        state = wizard.time_state[self._leg]
-        if self._is_middle:
-            # 循環：不限 → 以後 → 以前 → 不限
-            state.direction = {None: "after", "after": "before",
-                               "before": None}[state.direction]
-        else:
-            if state.direction is None:  # 直接轉小時就自動進入「以後」模式
-                state.direction = "after"
-            state.hour = (state.hour + self._delta) % 24
-        set_time_filter(wizard.draft, self._leg, state.direction, state.hour)
-        wizard.sync_time_labels()
-        await wizard.refresh(interaction)
+    async def on_submit(self, interaction: discord.Interaction):
+        errors = []
+        parsed = {}
+        for leg, item in (("out", self._out), ("ret", self._ret)):
+            if item is None:
+                continue
+            try:
+                parsed[leg] = parse_time_input(str(item.value))
+            except ValueError as exc:
+                errors.append(str(exc))
+        if errors:  # 有看不懂的就整份不套用，保留原設定
+            await interaction.response.send_message(
+                "🤔 " + "\n".join(errors) + "\n（原本的時間設定沒有變動）")
+            return
+        for leg, result in parsed.items():
+            if result is None:
+                set_time_filter(self._wizard.draft, leg, None, None)
+            else:
+                set_time_filter(self._wizard.draft, leg, result[0], result[1])
+        await self._wizard.refresh(interaction)
+
+
+def _current_time_text(tf: dict, leg: str) -> str:
+    """把現有設定轉回可編輯的文字（預填表單用）。"""
+    if tf.get(f"{leg}_after"):
+        return f"{tf[f'{leg}_after']}後"
+    if tf.get(f"{leg}_before"):
+        return f"{tf[f'{leg}_before']}前"
+    return ""
 
 
 class _ViaModal(discord.ui.Modal, title="指定轉機點"):
@@ -189,23 +195,6 @@ class SummaryView(discord.ui.View):
         self.ctx = ctx
         self.message: discord.Message | None = None
         self._finished = False  # 防連點：建立/取消只允許執行一次
-        # 時間轉盤：每個航段一列 [−3][−1][中間鍵][＋1][＋3]
-        self.time_state = {"out": _TimeState(9), "ret": _TimeState(15)}
-        self._middles: dict[str, _TimeButton] = {}
-        legs = ["out"] + (["ret"] if draft.return_date else [])
-        for row, leg in enumerate(legs):
-            for delta in (-3, -1):
-                self.add_item(_TimeButton(self, leg, row, delta=delta))
-            middle = _TimeButton(self, leg, row, is_middle=True)
-            self._middles[leg] = middle
-            self.add_item(middle)
-            for delta in (1, 3):
-                self.add_item(_TimeButton(self, leg, row, delta=delta))
-
-    def sync_time_labels(self) -> None:
-        for leg, btn in self._middles.items():
-            btn.label = self.time_state[leg].label(
-                "去程" if leg == "out" else "回程")
 
     async def refresh(self, interaction: discord.Interaction | None):
         embed = _render_embed(self.draft, self.ctx, self.bot.config.currency)
@@ -227,15 +216,19 @@ class SummaryView(discord.ui.View):
             except discord.HTTPException:
                 pass
 
-    @discord.ui.button(label="✈️ 轉機點", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="🕒 時間", style=discord.ButtonStyle.secondary, row=0)
+    async def time_btn(self, interaction: discord.Interaction, _):
+        await interaction.response.send_modal(_TimeModal(self))
+
+    @discord.ui.button(label="✈️ 轉機點", style=discord.ButtonStyle.secondary, row=0)
     async def via_btn(self, interaction: discord.Interaction, _):
         await interaction.response.send_modal(_ViaModal(self))
 
-    @discord.ui.button(label="💰 預算", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="💰 預算", style=discord.ButtonStyle.secondary, row=0)
     async def budget_btn(self, interaction: discord.Interaction, _):
         await interaction.response.send_modal(_BudgetModal(self))
 
-    @discord.ui.button(label="✅ 建立", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="✅ 建立", style=discord.ButtonStyle.success, row=0)
     async def create_btn(self, interaction: discord.Interaction, _):
         if self._finished:  # 防連點：第二次點擊直接吞掉
             await interaction.response.defer()
@@ -261,7 +254,7 @@ class SummaryView(discord.ui.View):
         await interaction.followup.send(_to_discord(messages.watch_created(watch)))
         self.stop()
 
-    @discord.ui.button(label="❌ 取消", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="❌ 取消", style=discord.ButtonStyle.danger, row=0)
     async def cancel_btn(self, interaction: discord.Interaction, _):
         if self._finished:
             await interaction.response.defer()
