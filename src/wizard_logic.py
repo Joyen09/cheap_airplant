@@ -68,19 +68,24 @@ def parse_vias_input(text: str) -> tuple[list[str], list[str]]:
 
 
 # ── 時段預設（下拉選單用）───────────────────────────────────────────────────
-# key → (顯示文字, 方向, HH:MM)；方向 None = 清除限制
-TIME_PRESETS: dict[str, tuple[str, str | None, str | None]] = {
-    "any":      ("不限時間", None, None),
-    "after06":  ("06:00 以後", "after", "06:00"),
-    "after09":  ("09:00 以後", "after", "09:00"),
-    "after12":  ("12:00 以後", "after", "12:00"),
-    "after15":  ("15:00 以後", "after", "15:00"),
-    "after18":  ("18:00 以後", "after", "18:00"),
-    "before12": ("12:00 以前", "before", "12:00"),
-    "before15": ("15:00 以前", "before", "15:00"),
-    "before18": ("18:00 以前", "before", "18:00"),
-    "before21": ("21:00 以前", "before", "21:00"),
-}
+# key → (顯示文字, 方向, HH:MM)；方向 None = 清除限制。
+# 涵蓋較完整的整點時段（Discord 單一選單上限 25 個）。
+_AFTER_HOURS = [5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20]
+_BEFORE_HOURS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 23]
+
+
+def _build_time_presets() -> dict[str, tuple[str, str | None, str | None]]:
+    presets: dict[str, tuple[str, str | None, str | None]] = {
+        "any": ("不限時間", None, None),
+    }
+    for h in _AFTER_HOURS:
+        presets[f"after{h:02d}"] = (f"{h:02d}:00 以後", "after", f"{h:02d}:00")
+    for h in _BEFORE_HOURS:
+        presets[f"before{h:02d}"] = (f"{h:02d}:00 以前", "before", f"{h:02d}:00")
+    return presets
+
+
+TIME_PRESETS: dict[str, tuple[str, str | None, str | None]] = _build_time_presets()
 
 
 def apply_time_preset(draft: Draft, leg: str, preset_key: str) -> None:

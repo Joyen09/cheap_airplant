@@ -57,11 +57,18 @@ def _hour(hhmm: str | None, default: int) -> int:
 
 
 def _leg_extras(after: str | None, before: str | None, vias: list[str]) -> bytes:
-    """組出要補進單一航段的欄位位元組。"""
+    """組出要補進單一航段的欄位位元組。
+
+    Google 的出發時間範圍：f8=最早小時（無位移），f9=最晚小時但實際 cutoff
+    是 f9+1（實測樣本 f9=23 顯示到「凌晨12:00」=24:00）。所以「X 點以前」
+    要編成 f9 = X-1，否則會多算一小時（選 18:00 前卻顯示 19:00 前）。
+    """
     extra = b""
     if after or before:
-        extra += _field_varint(8, _hour(after, 0))    # 最早出發
-        extra += _field_varint(9, _hour(before, 23))  # 最晚出發
+        earliest = _hour(after, 0)                    # 0-23
+        latest_cutoff = _hour(before, 24)             # 想要的「最晚出發」小時
+        extra += _field_varint(8, earliest)           # 最早出發
+        extra += _field_varint(9, max(0, latest_cutoff - 1))  # 最晚出發（cutoff-1）
         extra += _field_varint(10, 0)                 # 抵達不設限
         extra += _field_varint(11, 23)
     for v in vias:

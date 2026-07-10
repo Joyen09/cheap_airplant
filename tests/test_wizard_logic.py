@@ -69,11 +69,20 @@ def test_time_presets_apply_and_clear():
     assert d.time_filters == {"out_after": "09:00"}
     apply_time_preset(d, "out", "before18")   # 換方向會清掉舊的
     assert d.time_filters == {"out_before": "18:00"}
-    apply_time_preset(d, "ret", "after15")
-    assert d.time_filters["ret_after"] == "15:00"
+    apply_time_preset(d, "ret", "after16")
+    assert d.time_filters["ret_after"] == "16:00"
     apply_time_preset(d, "out", "any")        # 清除
     assert "out_before" not in d.time_filters
-    assert d.time_filters == {"ret_after": "15:00"}
+    assert d.time_filters == {"ret_after": "16:00"}
+
+
+def test_all_presets_valid_and_within_discord_limit():
+    from src.wizard_logic import TIME_PRESETS
+    assert len(TIME_PRESETS) <= 25          # Discord 單一選單上限
+    for key, (label, direction, hhmm) in TIME_PRESETS.items():
+        assert direction in (None, "before", "after")
+        if direction:
+            assert hhmm and ":" in hhmm
 
 
 # ── 行情與建議 ───────────────────────────────────────────────────────────────

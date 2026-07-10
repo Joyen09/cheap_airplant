@@ -43,7 +43,7 @@ def test_time_and_via_encoded_per_leg():
     out = augment_tfs(BASE, {"out_after": "19:00", "ret_after": "15:00"}, ["PEK"])
     legs = _legs(out)
     assert len(legs) == 2
-    # 去程：19 後（f8=19, f9=23），轉機 PEK（f15）
+    # 去程：19 後（f8=19），最晚到午夜（f9=23 = cutoff 24:00），轉機 PEK（f15）
     assert legs[0][8] == [19] and legs[0][9] == [23]
     assert legs[0][10] == [0] and legs[0][11] == [23]
     assert legs[0][15] == [b"PEK"]
@@ -52,14 +52,22 @@ def test_time_and_via_encoded_per_leg():
     assert legs[1][15] == [b"PEK"]
 
 
-def test_before_filter_and_multiple_vias():
+def test_before_filter_offset_by_one():
+    # 「12:00 以前」→ 最晚出發 cutoff=12:00 → f9=11（Google 的 f9 是 cutoff-1）
     out = augment_tfs(BASE, {"out_before": "12:00"}, ["HKG", "ICN"])
     legs = _legs(out)
-    assert legs[0][8] == [0] and legs[0][9] == [12]
+    assert legs[0][8] == [0] and legs[0][9] == [11]
     assert legs[0][15] == [b"HKG", b"ICN"]
     # 回程沒設時間 → 不加時間欄位，但轉機點照加
     assert 8 not in legs[1]
     assert legs[1][15] == [b"HKG", b"ICN"]
+
+
+def test_before_18_not_shifted_to_19():
+    # 迴歸：選 18:00 前不能編成顯示 19:00 前
+    out = augment_tfs(BASE, {"out_before": "18:00"}, [])
+    legs = _legs(out)
+    assert legs[0][9] == [17]   # cutoff 18:00 → f9=17（+1=18:00）
 
 
 def test_original_fields_preserved():
