@@ -90,3 +90,20 @@ def test_backfill_old_data_without_user_seq(tmp_path):
     assert [w.user_seq for w in sorted(store.list_watches(7), key=lambda x: x.id)] \
         == [1, 2, 3]
     assert store.list_watches(9)[0].user_seq == 1
+
+
+def test_baseline_uses_rolling_window_only(tmp_path):
+    # 超出滾動視窗的舊觀測不應影響常態價
+    from datetime import datetime, timedelta, timezone
+
+    from src.storage import BASELINE_WINDOW_DAYS
+
+    store = JsonStorage(str(tmp_path / "s.json"))
+    w = store.add_watch(555, "TPE", "NRT", None, "2026-07-01", None, None, "TWD")
+    old_ts = (
+        datetime.now(timezone.utc) - timedelta(days=BASELINE_WINDOW_DAYS + 5)
+    ).isoformat()
+    store._history[w.id] = [[old_ts, 99999.0]]  # 視窗外的高價
+    store.record_observation(w.id, 10000.0)
+    store.record_observation(w.id, 12000.0)
+    assert store.list_watches(555)[0].baseline == 11000.0

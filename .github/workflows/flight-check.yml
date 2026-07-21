@@ -11,8 +11,11 @@ concurrency:
   group: flight-check
   cancel-in-progress: false
 
+# 狀態檔改存 Actions cache、不再 commit 回 repo：
+# bot_state.json 裡有使用者的 chat id 與旅行計畫（誰、哪天出發、哪天回來），
+# 放進版控（尤其公開 repo）等於公告行程。cache 只有 repo 的 Actions 讀得到。
 permissions:
-  contents: write  # 需要把狀態檔 commit 回 repo
+  contents: read
 
 jobs:
   check:
@@ -26,14 +29,28 @@ jobs:
           cache: pip
 
       - name: 安裝相依套件
-        run: pip install requests python-dotenv
+        # fast-flights = 主力資料來源（Google Flights，免金鑰）；
+        # 沒裝的話模式 A 只能靠 SerpApi / Travelpayouts 備援
+        run: pip install requests python-dotenv fast-flights
+
+      - name: 還原上次的狀態（Actions cache）
+        uses: actions/cache/restore@v4
+        with:
+          path: bot_state.json
+          # run_id 每次都不同，精確 key 一定 miss，
+          # 實際由 restore-keys 的前綴比對撈「最近一次保存」的狀態
+          key: bot-state-${{ github.run_id }}
+          restore-keys: |
+            bot-state-
 
       - name: 查價 & 處理訊息
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          # 機票資料來源：至少設定一個（兩個都設會自動 fallback）
+          # 機票資料來源備援（可選；主力 Google Flights 免金鑰）
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          # Travelpayouts 分潤 marker（可選；設了通知就會多附含分潤的訂票連結）
+          TRAVELPAYOUTS_MARKER: ${{ vars.TRAVELPAYOUTS_MARKER || '' }}
           CURRENCY: ${{ vars.CURRENCY || 'TWD' }}
           ADULTS: ${{ vars.ADULTS || '1' }}
           GOOD_DEAL_RATIO: ${{ vars.GOOD_DEAL_RATIO || '0.15' }}
@@ -42,14 +59,10 @@ jobs:
           STATE_PATH: bot_state.json
         run: python runner.py
 
-      - name: 把狀態存回 repo
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add bot_state.json
-          if git diff --cached --quiet; then
-            echo "狀態沒有變化，不需要 commit。"
-          else
-            git commit -m "chore: 更新機票監控狀態 [skip ci]"
-            git push
-          fi
+      - name: 保存狀態（Actions cache）
+        # 只要狀態檔存在就保存——就算查價步驟失敗，已讀掉的 Telegram offset 也要留住
+        if: ${{ always() && hashFiles('bot_state.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: bot_state.json
+          key: bot-state-${{ github.run_id }}

@@ -132,3 +132,21 @@ def test_time_filter_skips_when_unknown():
                                "departure": "2026-07-01 08:30"}])
     r = evaluate(w, [o])
     assert r.cheapest.price == 9000
+
+
+def test_baseline_prefers_rolling_over_lifetime():
+    # 終身平均 100000（被早期高價灌爆），滾動視窗平均 12000 → 應以滾動視窗為準
+    w = make_watch(price_count=10, price_sum=1_000_000.0)
+    w.baseline = 12000.0
+    r = evaluate(w, [offer(10000)], good_deal_ratio=0.15, baseline_min_samples=10)
+    assert r.baseline == 12000.0
+    assert r.is_good_deal  # 10000 <= 12000 * 0.85
+
+
+def test_baseline_falls_back_to_lifetime_for_old_state():
+    # 舊狀態檔沒有 baseline 欄位 → 退回累積平均，行為與過去相同
+    w = make_watch(price_count=10, price_sum=120000.0)
+    assert w.baseline is None
+    r = evaluate(w, [offer(10000)], good_deal_ratio=0.15, baseline_min_samples=10)
+    assert r.baseline == 12000.0
+    assert r.is_good_deal

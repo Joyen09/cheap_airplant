@@ -1,6 +1,7 @@
 """把資料轉成給使用者看的 Telegram 訊息文字。"""
 from __future__ import annotations
 
+import os
 from urllib.parse import quote
 
 from .monitor import CheckResult
@@ -51,8 +52,41 @@ def _google_flights_url(w) -> str:
         return "https://www.google.com/travel/flights?q=" + quote(q)
 
 
+def _ddmm(iso_date: str) -> str:
+    """'2026-10-01' → '0110'（Aviasales 搜尋路徑用的 日日月月）。"""
+    return iso_date[8:10] + iso_date[5:7]
+
+
+def _aviasales_url(w) -> str | None:
+    """帶 Travelpayouts 分潤 marker 的 Aviasales 搜尋連結。
+
+    沒設 TRAVELPAYOUTS_MARKER 就不產生（回 None）。透過此連結訂票，
+    價格與直接訂完全相同，差別只在 Travelpayouts 會付開發者分潤。
+    """
+    marker = os.getenv("TRAVELPAYOUTS_MARKER", "").strip()
+    if not marker:
+        return None
+    try:
+        adults = os.getenv("ADULTS", "1").strip() or "1"
+        seg = f"{w.origin}{_ddmm(w.depart_date)}{w.destination}"
+        ret = getattr(w, "return_date", None)
+        if ret:
+            seg += _ddmm(ret)
+        seg += adults
+        cur = (getattr(w, "currency", "") or "twd").lower()
+        return (
+            f"https://www.aviasales.com/search/{seg}"
+            f"?marker={quote(marker)}&currency={cur}"
+        )
+    except Exception:  # noqa: BLE001 - 分潤連結是加分項，失敗就不附
+        return None
+
+
 def _booking_section(w, offer) -> str:
     lines = [f'🔗 <a href="{_google_flights_url(w)}">在 Google Flights 查看／訂票（含時間/轉機條件）</a>']
+    av = _aviasales_url(w)
+    if av:
+        lines.append(f'　└ 或<a href="{av}">在 Aviasales 比價／訂票</a>（此連結含開發者分潤，票價不變）')
     if offer is not None and offer.booking_link:
         lines.append(f'　└ 或<a href="{offer.booking_link}">資料來源的訂票頁</a>')
     if offer is not None and offer.carrier:

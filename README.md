@@ -64,16 +64,23 @@
 
 ### 模式 A：GitHub Actions（免下載）
 
-`runner.py` 由 `.github/workflows/flight-check.yml` 每 5 分鐘執行：讀新訊息、查價、通知，
-狀態存回 repo 的 `bot_state.json`。設定（都在瀏覽器）：
+`runner.py` 由 `.github/workflows/flight-check.yml` 每 5 分鐘執行：讀新訊息、查價、通知。
+狀態檔（`bot_state.json`）保存在 **GitHub Actions cache**、不會 commit 進 repo——裡面有
+使用者的 chat id 與旅行計畫（誰、哪天出發、哪天回來），放進版控等於公告行程。
+設定（都在瀏覽器）：
 
 1. **Settings → Secrets and variables → Actions → New repository secret** 新增：
    - `TELEGRAM_BOT_TOKEN`（必填）
    - `TRAVELPAYOUTS_TOKEN` / `SERPAPI_KEY`（可選備援；Google Flights 免金鑰，不設也能跑）
-2. （可選）**Variables** 分頁可設 `CURRENCY`、`ADULTS`、`GOOD_DEAL_RATIO`、`DIGEST_HOUR` 等。
+2. （可選）**Variables** 分頁可設 `CURRENCY`、`ADULTS`、`GOOD_DEAL_RATIO`、`DIGEST_HOUR`、
+   `TRAVELPAYOUTS_MARKER`（分潤連結）等。
 3. **Actions** 分頁啟用 workflow，可手動 **Run workflow** 測試。
 
-> GitHub 排程只從**預設分支**觸發，且非即時（傳訊息後最多等約 5~15 分鐘）。
+> - GitHub 排程只從**預設分支**觸發，且非即時（傳訊息後最多等約 5~15 分鐘）。
+> - Actions cache **超過 7 天沒被使用會被 GitHub 清掉**（排程正常跑就不會）；
+>   若 workflow 停用超過 7 天才重開，狀態會歸零、監控要重新傳訊息建立。
+> - GitHub 會在 repo **60 天沒有任何 commit** 時自動停用排程並寄信通知你，
+>   到 Actions 頁面按 Enable 即可恢復。
 
 ### 模式 B：本機 / 伺服器（即時回覆）
 
@@ -92,6 +99,7 @@ python main.py            # Telegram
 | `DISCORD_BOT_TOKEN` | Discord 才要 | [discord.com/developers](https://discord.com/developers/applications)（記得開 Message Content Intent）|
 | `TRAVELPAYOUTS_TOKEN` | 可選 | [travelpayouts.com](https://www.travelpayouts.com)（免費、不按次計費）|
 | `SERPAPI_KEY` | 可選 | [serpapi.com](https://serpapi.com)（免費約 100 次/月）|
+| `TRAVELPAYOUTS_MARKER` | 可選 | Travelpayouts 後台的 marker（affiliate ID）。設定後通知會多附一條帶分潤的 Aviasales 訂票連結——**使用者票價完全不變**，Travelpayouts 付分潤給你，通知文字已註明含分潤 |
 
 > 平台 token（Telegram 或 Discord）擇一必填。資料來源全部可選——主力 Google Flights 免金鑰。
 > 其餘可調設定（檢查間隔、幣別、人數、好價門檻、摘要時間）都在 `.env.example` 有註解。
@@ -142,4 +150,7 @@ pytest
 - **Google Flights（fast-flights）** 是非官方管道（解析 Google 頁面），若 Google 改版可能
   暫時失效——屆時會自動退到你設的 SerpApi / Travelpayouts 備援，bot 不會中斷。
 - **Travelpayouts** 是快取價（非即時）、且不提供中轉機場，故 via 過濾為盡力而為。
-- 「常態價」是用該監控實際觀測價的累積平均當基準，累積約 10 筆後才啟用「好價」判斷。
+- 「常態價」是用該監控**最近 14 天**實際觀測價的平均當基準（滾動視窗——機票越接近出發日
+  通常越貴，太舊的低價不該一直拉低基準），累積約 10 筆觀測後才啟用「好價」判斷。
+- 設了 `TRAVELPAYOUTS_MARKER` 時，通知會多附一條帶分潤的 Aviasales 訂票連結，
+  並在文字中註明「此連結含開發者分潤，票價不變」——對使用者誠實揭露。

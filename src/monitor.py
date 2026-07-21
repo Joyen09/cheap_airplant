@@ -3,7 +3,7 @@
 通知條件（任一成立就「值得通知」）：
   1. 低於使用者設定的預算
   2. 破歷史新低（比看過的最低更低）
-  3. 好價：明顯低於這條航線的「常態價」（累積觀測的平均價）
+  3. 好價：明顯低於這條航線的「常態價」（最近 BASELINE_WINDOW_DAYS 天觀測的平均）
 
 為了不重複轟炸，只有當價格「比上次通知時更便宜」才會真的再次通知
 （last_alert_price 機制）。常態價需要累積足夠樣本後才會啟用。
@@ -26,6 +26,19 @@ class CheckResult:
     reason: str               # 為什麼通知（給人看的）
     baseline: float | None = None      # 目前估算的常態價
     is_good_deal: bool = False         # 是否明顯低於常態價
+
+
+def baseline_of(watch: Watch) -> float | None:
+    """這條航線的「常態價」基準。
+
+    新資料用滾動視窗平均（storage 在每次觀測時更新 watch.baseline）；
+    舊狀態檔還沒有 baseline 欄位時，退回終身累積平均。
+    """
+    if watch.baseline is not None:
+        return watch.baseline
+    if watch.price_count > 0:
+        return watch.price_sum / watch.price_count
+    return None
 
 
 def _time_to_minutes(value: str | None) -> int | None:
@@ -96,9 +109,7 @@ def evaluate(
     price = cheapest.price
     reasons: list[str] = []
 
-    baseline = (
-        watch.price_sum / watch.price_count if watch.price_count > 0 else None
-    )
+    baseline = baseline_of(watch)
     has_baseline = baseline is not None and watch.price_count >= baseline_min_samples
 
     # 三種「值得通知」的情況

@@ -17,7 +17,7 @@ from telegram.ext import (
 from . import messages
 from .config import Config
 from .flight_offer import FlightError
-from .monitor import check_watch
+from .monitor import baseline_of, check_watch
 from .parser import parse_message
 from .providers import build_provider
 from .storage import Storage
@@ -85,7 +85,7 @@ class FlightBot:
                     f"再按一次 /chart（或 /check）就能看圖了。"
                 )
                 continue
-            baseline = w.price_sum / w.price_count if w.price_count else None
+            baseline = baseline_of(w)
             png = render_price_chart(
                 title=f"#{w.display_no} {w.origin}-{w.destination} {w.depart_date}",
                 points=history, currency=w.currency,

@@ -7,9 +7,9 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, fields
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from .storage import Watch
+from .storage import BASELINE_WINDOW_DAYS, Watch
 
 
 class JsonStorage:
@@ -101,9 +101,15 @@ class JsonStorage:
             w.lowest_seen = price
         w.price_count += 1
         w.price_sum += price
+        now = datetime.now(timezone.utc)
         hist = self._history.setdefault(watch_id, [])
-        hist.append([datetime.now(timezone.utc).isoformat(), price])
+        hist.append([now.isoformat(), price])
         del hist[:-1000]  # 最多保留最近 1000 筆，控制檔案大小
+        # 常態價 = 滾動視窗內觀測的平均。ts 皆同格式 isoformat，字典序即時間序。
+        # （高頻查價時視窗實際上限也受上面 1000 筆的保留數約束）
+        cutoff = (now - timedelta(days=BASELINE_WINDOW_DAYS)).isoformat()
+        recent = [p for ts, p in hist if ts >= cutoff]
+        w.baseline = sum(recent) / len(recent) if recent else None
 
     def get_history(self, watch_id: int, limit: int = 500) -> list[tuple[str, float]]:
         hist = self._history.get(watch_id, [])[-limit:]

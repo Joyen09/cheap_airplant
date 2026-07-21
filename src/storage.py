@@ -4,7 +4,12 @@ from __future__ import annotations
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+# 「常態價」的滾動視窗天數：只用最近這段期間的觀測算平均。
+# 機票越接近出發日通常越貴，終身累積平均會被早期低價拉低、造成「好價」誤報，
+# 所以基準只看近期。
+BASELINE_WINDOW_DAYS = 14
 
 
 @dataclass
@@ -21,9 +26,11 @@ class Watch:
     lowest_seen: float | None
     active: int
     created_at: str
-    # 累積統計：用來算「常態價」基準（price_sum / price_count）
+    # 累積統計：樣本數門檻用；舊狀態檔沒有 baseline 時也用它退回累積平均
     price_count: int = 0
     price_sum: float = 0.0
+    # 「常態價」基準：最近 BASELINE_WINDOW_DAYS 天觀測的平均（每次觀測時更新）
+    baseline: float | None = None
     # 上次「主動通知」當下的價格；只有比這更便宜才會再通知，避免重複轟炸
     last_alert_price: float | None = None
     # 去程/回程時間限制的 JSON，例如 {"out_before":"18:00","ret_before":"12:00"}
@@ -52,6 +59,7 @@ CREATE TABLE IF NOT EXISTS watches (
     created_at   TEXT    NOT NULL,
     price_count  INTEGER NOT NULL DEFAULT 0,
     price_sum    REAL    NOT NULL DEFAULT 0,
+    baseline     REAL,
     last_alert_price REAL,
     time_filters TEXT,
     user_seq     INTEGER
@@ -69,6 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_history_watch ON price_history (watch_id, id);
 _MIGRATIONS = [
     "ALTER TABLE watches ADD COLUMN price_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE watches ADD COLUMN price_sum REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE watches ADD COLUMN baseline REAL",
     "ALTER TABLE watches ADD COLUMN last_alert_price REAL",
     "ALTER TABLE watches ADD COLUMN time_filters TEXT",
     "ALTER TABLE watches ADD COLUMN user_seq INTEGER",
@@ -169,20 +178,28 @@ class Storage:
         return [self._row_to_watch(r) for r in rows]
 
     def record_observation(self, watch_id: int, price: float) -> None:
-        """記錄一次查到的價格：更新歷史最低與累積統計，並寫入歷史點（畫圖用）。"""
+        """記錄一次查到的價格：更新歷史最低、常態價（滾動視窗平均），並寫入歷史點。"""
+        now = datetime.now(timezone.utc)
+        self._conn.execute(
+            "INSERT INTO price_history (watch_id, ts, price) VALUES (?, ?, ?)",
+            (watch_id, now.isoformat(), price),
+        )
+        # ts 一律是同格式的 UTC isoformat 字串，字典序即時間序，可直接比較
+        cutoff = (now - timedelta(days=BASELINE_WINDOW_DAYS)).isoformat()
+        baseline = self._conn.execute(
+            "SELECT AVG(price) FROM price_history WHERE watch_id = ? AND ts >= ?",
+            (watch_id, cutoff),
+        ).fetchone()[0]
         self._conn.execute(
             """UPDATE watches SET
                  lowest_seen = CASE
                      WHEN lowest_seen IS NULL OR ? < lowest_seen THEN ?
                      ELSE lowest_seen END,
                  price_count = price_count + 1,
-                 price_sum   = price_sum + ?
+                 price_sum   = price_sum + ?,
+                 baseline    = ?
                WHERE id = ?""",
-            (price, price, price, watch_id),
-        )
-        self._conn.execute(
-            "INSERT INTO price_history (watch_id, ts, price) VALUES (?, ?, ?)",
-            (watch_id, datetime.now(timezone.utc).isoformat(), price),
+            (price, price, price, baseline, watch_id),
         )
         self._conn.commit()
 

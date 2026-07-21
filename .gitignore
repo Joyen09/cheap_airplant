@@ -7,6 +7,9 @@
 *.sqlite
 *.sqlite3
 data/
+# 模式 A 的狀態檔：含使用者 chat id 與旅行計畫，絕不進版控
+# （GitHub Actions 上由 workflow 存在 Actions cache）
+bot_state.json
 
 # Python
 __pycache__/
